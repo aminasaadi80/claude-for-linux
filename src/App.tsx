@@ -36,6 +36,7 @@ interface Tab {
   cwd: string;
   sessionId?: string;
   permission: Perm;
+  restored?: boolean; // transient: a terminal tab restored from disk → open with --continue
 }
 
 interface Settings {
@@ -158,6 +159,7 @@ function App() {
   const tabReq = useRef<Record<string, string>>({}); // tabId -> in-flight reqId (for Stop)
   const tRef = useRef(t);
   tRef.current = t;
+  const activeRef = useRef<{ id: string; kind: "chat" | "terminal" }>({ id: "", kind: "chat" });
   const scrollRef = useRef<HTMLDivElement>(null);
   const loaded = useRef(false);
   const saveTimer = useRef<number | undefined>(undefined);
@@ -165,6 +167,7 @@ function App() {
   const activeTab = tabs.find((tb) => tb.id === activeId) ?? tabs[0];
   const messages = activeTab ? activeTab.messages : [];
   const busy = !!messages[messages.length - 1]?.streaming;
+  activeRef.current = { id: activeTab?.id ?? "", kind: activeTab?.kind ?? "chat" };
 
   useEffect(() => {
     invoke<Settings>("load_settings").then((s) => setSettings({ lang: (s.lang as Lang) || "en" }));
@@ -174,7 +177,15 @@ function App() {
         if (raw) {
           const data = JSON.parse(raw);
           if (Array.isArray(data.tabs) && data.tabs.length) {
-            setTabs(data.tabs.map((tb: Tab) => ({ ...tb, kind: tb.kind ?? "chat", permission: tb.permission ?? "default" })));
+            setTabs(
+              data.tabs.map((tb: Tab) => ({
+                ...tb,
+                kind: tb.kind ?? "chat",
+                permission: tb.permission ?? "default",
+                // restored terminal tabs reopen with --continue
+                restored: tb.kind === "terminal" ? true : undefined,
+              }))
+            );
             if (data.activeId) setActiveId(data.activeId);
             if (typeof data.counter === "number") tabCounter = data.counter;
           }
@@ -190,13 +201,15 @@ function App() {
     if (!loaded.current) return;
     window.clearTimeout(saveTimer.current);
     saveTimer.current = window.setTimeout(() => {
-      // terminal tabs hold a live process — don't persist them
-      const sanitized = tabs
-        .filter((tb) => tb.kind !== "terminal")
-        .map((tb) => ({ ...tb, messages: tb.messages.map((m) => ({ ...m, streaming: false })) }));
-      const stillActive = sanitized.some((tb) => tb.id === activeId) ? activeId : sanitized[0]?.id;
+      // persist both chat and terminal tabs (to disk → survives app + system restart).
+      // a terminal's live process can't be frozen, so on reopen it re-runs claude
+      // with --continue to resume that folder's last conversation.
+      const sanitized = tabs.map((tb) => {
+        const { restored: _restored, ...rest } = tb;
+        return { ...rest, messages: tb.messages.map((m) => ({ ...m, streaming: false })) };
+      });
       invoke("save_session", {
-        data: JSON.stringify({ tabs: sanitized, activeId: stillActive, counter: tabCounter }),
+        data: JSON.stringify({ tabs: sanitized, activeId, counter: tabCounter }),
       }).catch(() => {});
     }, 400);
   }, [tabs, activeId]);
@@ -295,7 +308,14 @@ function App() {
       else if (p.type === "drop") {
         setDragOver(false);
         const paths = (p.paths || []).map(quotePath);
-        if (paths.length) setInput((prev) => (prev ? prev + " " : "") + paths.join(" "));
+        if (!paths.length) return;
+        const joined = paths.join(" ");
+        if (activeRef.current.kind === "terminal") {
+          // write the path(s) straight into the running terminal
+          invoke("pty_write", { termId: activeRef.current.id, data: joined + " " }).catch(() => {});
+        } else {
+          setInput((prev) => (prev ? prev + " " : "") + joined);
+        }
       }
     });
     return () => {
@@ -443,9 +463,20 @@ function App() {
         </button>
       </div>
 
-      {activeTab?.kind === "terminal" ? (
-        <TerminalView termId={activeTab.id} cwd={activeTab.cwd} />
-      ) : (
+      {/* terminal tabs stay mounted (hidden when inactive) so they keep running across tab switches */}
+      {tabs
+        .filter((tb) => tb.kind === "terminal")
+        .map((tb) => (
+          <div
+            key={tb.id}
+            className="term-wrap"
+            style={{ display: tb.id === activeId ? "flex" : "none" }}
+          >
+            <TerminalView termId={tb.id} cwd={tb.cwd} resume={tb.restored} />
+          </div>
+        ))}
+
+      {activeTab?.kind === "chat" && (
         <>
       <div className="cwd-bar">
         <label>{t.folder}</label>

@@ -382,6 +382,7 @@ fn pty_open(
     cwd: Option<String>,
     rows: u16,
     cols: u16,
+    resume: Option<bool>,
 ) -> Result<(), String> {
     let pty = native_pty_system();
     let pair = pty
@@ -390,6 +391,10 @@ fn pty_open(
 
     let mut cmd = CommandBuilder::new(claude_binary());
     cmd.env("TERM", "xterm-256color");
+    // when restoring a saved terminal tab, continue that folder's last conversation
+    if resume == Some(true) {
+        cmd.arg("--continue");
+    }
     if let Some(dir) = cwd.as_deref().filter(|s| !s.trim().is_empty()) {
         cmd.cwd(dir);
     } else if let Some(home) = dirs::home_dir() {

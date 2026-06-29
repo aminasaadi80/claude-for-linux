@@ -466,10 +466,16 @@ body,
 }
 
 /* ---- embedded terminal ---- */
+.term-wrap {
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
 .xterm-host {
   flex: 1;
   min-height: 0;
-  padding: 8px 10px;
+  /* extra bottom gap so Claude's input box / status line isn't clipped */
+  padding: 8px 10px 18px;
   background: #1a1714;
   overflow: hidden;
 }

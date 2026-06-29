@@ -13,7 +13,15 @@ function b64ToBytes(b64: string): Uint8Array {
 }
 
 // A real interactive `claude` running in a PTY, rendered with xterm.js.
-export default function TerminalView({ termId, cwd }: { termId: string; cwd: string }) {
+export default function TerminalView({
+  termId,
+  cwd,
+  resume,
+}: {
+  termId: string;
+  cwd: string;
+  resume?: boolean;
+}) {
   const hostRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -33,8 +41,50 @@ export default function TerminalView({ termId, cwd }: { termId: string; cwd: str
     term.open(hostRef.current!);
     fit.fit();
 
+    // copy / paste (terminal conventions: Ctrl+Shift+C / Ctrl+Shift+V, right-click paste)
+    const pasteClipboard = () =>
+      navigator.clipboard
+        .readText()
+        .then((txt) => {
+          if (txt) invoke("pty_write", { termId, data: txt }).catch(() => {});
+        })
+        .catch(() => {});
+
+    term.attachCustomKeyEventHandler((e) => {
+      if (e.type !== "keydown") return true;
+      if (e.ctrlKey && e.shiftKey && e.code === "KeyC") {
+        const sel = term.getSelection();
+        if (sel) navigator.clipboard.writeText(sel).catch(() => {});
+        return false;
+      }
+      if (e.ctrlKey && e.shiftKey && e.code === "KeyV") {
+        pasteClipboard();
+        return false;
+      }
+      return true;
+    });
+
+    const onContext = (ev: MouseEvent) => {
+      ev.preventDefault();
+      const sel = term.getSelection();
+      if (sel) {
+        // right-click with a selection copies it
+        navigator.clipboard.writeText(sel).catch(() => {});
+        term.clearSelection();
+      } else {
+        pasteClipboard();
+      }
+    };
+    hostRef.current?.addEventListener("contextmenu", onContext);
+
     let disposed = false;
-    invoke("pty_open", { termId, cwd: cwd || null, rows: term.rows, cols: term.cols }).catch(() => {});
+    invoke("pty_open", {
+      termId,
+      cwd: cwd || null,
+      rows: term.rows,
+      cols: term.cols,
+      resume: resume ?? false,
+    }).catch(() => {});
 
     const unData = listen("pty://data", (e: { payload: { id: string; data: string } }) => {
       if (e.payload.id === termId && !disposed) term.write(b64ToBytes(e.payload.data));
@@ -57,9 +107,11 @@ export default function TerminalView({ termId, cwd }: { termId: string; cwd: str
     window.addEventListener("resize", doFit);
     setTimeout(() => term.focus(), 50);
 
+    const host = hostRef.current;
     return () => {
       disposed = true;
       window.removeEventListener("resize", doFit);
+      host?.removeEventListener("contextmenu", onContext);
       ro.disconnect();
       dataSub.dispose();
       unData.then((f) => f());
