@@ -29,11 +29,10 @@ Tabs, persistent conversations, Markdown/code rendering, drag-and-drop, and one-
 - 📎 **Drag & drop** files to insert their paths into the prompt.
 - 🌐 **Bilingual UI** — English / فارسی, switchable at runtime.
 
-## 📸 Screenshots
+## 📸 Screenshot
 
-<!-- Add a screenshot here: docs/screenshot.png -->
 <div align="center">
-<em>(screenshot coming soon)</em>
+<img src="docs/screenshot.png" alt="Claude for Linux" width="820">
 </div>
 
 ## 📦 Install
