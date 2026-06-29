@@ -94,10 +94,9 @@ body,
   font-size: 13px;
   font-family: inherit;
   cursor: pointer;
-  direction: rtl;
-  text-align: right;
-  text-align-last: right;
-  /* custom caret on the right edge; the Persian text sits to its left */
+  text-align: start;
+  text-align-last: start;
+  /* custom caret on the right edge; the option text sits to its inline-start */
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'><path d='M2 4l4 4 4-4' fill='none' stroke='%239c948a' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/></svg>");
   background-repeat: no-repeat;
   background-position: right 10px center;
@@ -113,8 +112,28 @@ body,
 .actions select option {
   background: var(--bg-soft);
   color: var(--text);
-  direction: rtl;
-  text-align: right;
+}
+
+/* ---- language switch (settings) ---- */
+.lang-switch {
+  display: flex;
+  gap: 6px;
+}
+.lang-switch button {
+  flex: 1;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  border-radius: 8px;
+  padding: 8px 0;
+  cursor: pointer;
+  font-size: 13px;
+  font-family: inherit;
+}
+.lang-switch button.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
 }
 .actions button {
   background: var(--panel);
@@ -291,6 +310,115 @@ body,
   color: var(--accent);
   animation: blink 1s step-start infinite;
 }
+
+/* tool activity line */
+.tool-line {
+  max-width: 820px;
+  width: 100%;
+  margin: -6px auto;
+  padding-inline-start: 40px;
+  font-size: 12.5px;
+  color: var(--muted);
+  font-family: ui-monospace, "JetBrains Mono", monospace;
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+}
+.tool-ico {
+  opacity: 0.8;
+}
+
+/* markdown rendering inside assistant bubbles */
+.bubble p {
+  margin: 0 0 10px;
+}
+.bubble p:last-child {
+  margin-bottom: 0;
+}
+.bubble pre {
+  background: #0f0d0b;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  overflow-x: auto;
+  direction: ltr;
+  text-align: left;
+  margin: 8px 0;
+}
+.bubble code {
+  font-family: ui-monospace, "JetBrains Mono", monospace;
+  font-size: 13px;
+}
+.bubble :not(pre) > code {
+  background: #0f0d0b;
+  padding: 1px 5px;
+  border-radius: 4px;
+  direction: ltr;
+  display: inline-block;
+}
+.bubble ul,
+.bubble ol {
+  margin: 6px 0;
+  padding-inline-start: 22px;
+}
+.bubble a {
+  color: var(--accent);
+}
+.bubble h1,
+.bubble h2,
+.bubble h3 {
+  margin: 10px 0 6px;
+  font-size: 15px;
+}
+.bubble table {
+  border-collapse: collapse;
+  margin: 8px 0;
+}
+.bubble th,
+.bubble td {
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+}
+
+/* permission selector + stop button */
+.perm-select {
+  appearance: none;
+  -webkit-appearance: none;
+  background-color: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 30px 6px 10px;
+  font-size: 12.5px;
+  font-family: inherit;
+  cursor: pointer;
+  text-align: start;
+  text-align-last: start;
+  white-space: nowrap;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'><path d='M2 4l4 4 4-4' fill='none' stroke='%239c948a' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  transition: border-color 0.15s;
+}
+.perm-select:hover,
+.perm-select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.perm-select option {
+  background: var(--bg-soft);
+  color: var(--text);
+}
+.stop-btn {
+  background: var(--err) !important;
+  color: #fff;
+  border: none;
+  border-radius: 12px;
+  padding: 0 22px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+}
 @keyframes blink {
   50% {
     opacity: 0;
@@ -335,6 +463,27 @@ body,
 .composer button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* ---- drag & drop overlay ---- */
+.drop-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(217, 119, 87, 0.12);
+  border: 3px dashed var(--accent);
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+.drop-box {
+  background: var(--bg-soft);
+  border: 1px solid var(--accent);
+  color: var(--text);
+  padding: 16px 26px;
+  border-radius: 14px;
+  font-size: 15px;
+  font-weight: 600;
 }
 
 /* ---- settings modal ---- */
@@ -386,6 +535,42 @@ body,
   direction: ltr;
   display: inline-block;
 }
+.api-help {
+  font-size: 12px;
+  color: var(--muted);
+  margin: 6px 0 0;
+}
+
+.about {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+.about-label {
+  font-size: 12px;
+  color: var(--muted);
+}
+.about-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 6px;
+  font-size: 13px;
+}
+.about-row b {
+  color: var(--text);
+}
+.about-link {
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: none;
+  direction: ltr;
+}
+.about-link:hover {
+  text-decoration: underline;
+}
+
 .modal-actions {
   display: flex;
   justify-content: flex-start;

@@ -1,76 +1,57 @@
-// Claude for Linux — Tauri backend
+// Claude for Linux — Tauri backend (Claude Code GUI)
 //
-// Two engines:
-//   * chat_send  — talks to the Anthropic Messages API over raw HTTPS (SSE streaming)
-//   * code_send  — drives the local `claude` CLI as a coding agent (line streaming)
-//
-// Streaming is delivered to the UI via Tauri events rather than return values so the
-// frontend can render tokens as they arrive.
+// Drives the local `claude` CLI as a coding agent and streams its output to the
+// UI via Tauri events. Authentication is whatever the installed `claude` CLI
+// already has (the same browser login you use in the terminal) — no API key.
 
+use std::collections::HashMap;
 use std::io::{BufRead, BufReader};
+use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
+use std::sync::Mutex;
 
-use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager, State};
 
-const ANTHROPIC_URL: &str = "https://api.anthropic.com/v1/messages";
-const ANTHROPIC_VERSION: &str = "2023-06-01";
+// Maps an in-flight request id -> the child process group id, so a running
+// `claude` invocation can be cancelled from the UI.
+#[derive(Default)]
+struct AppState {
+    children: Mutex<HashMap<String, u32>>,
+}
 
 // ----------------------------------------------------------------------------
-// Settings (persisted as JSON in the user's config dir)
+// Settings
 // ----------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct Settings {
-    #[serde(default)]
-    api_key: String,
-    #[serde(default = "default_model")]
-    model: String,
-    #[serde(default)]
-    proxy: String,
+    #[serde(default = "default_lang")]
+    lang: String,
 }
 
-/// Accept "127.0.0.1:8080" or "http://..." and return a proxy URL with a scheme.
-fn normalize_proxy(p: &str) -> Option<String> {
-    let p = p.trim();
-    if p.is_empty() {
-        return None;
-    }
-    if p.contains("://") {
-        Some(p.to_string())
-    } else {
-        Some(format!("http://{}", p))
-    }
-}
-
-fn default_model() -> String {
-    "claude-opus-4-8".to_string()
+fn default_lang() -> String {
+    "en".to_string()
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings {
-            api_key: String::new(),
-            model: default_model(),
-            proxy: String::new(),
-        }
+        Settings { lang: default_lang() }
     }
 }
 
-fn settings_path() -> PathBuf {
+fn config_file(name: &str) -> PathBuf {
     let mut dir = dirs::config_dir().unwrap_or_else(|| PathBuf::from("."));
     dir.push("claude-linux");
     let _ = std::fs::create_dir_all(&dir);
-    dir.push("settings.json");
+    dir.push(name);
     dir
 }
 
 #[tauri::command]
 fn load_settings() -> Settings {
-    let path = settings_path();
-    std::fs::read_to_string(&path)
+    std::fs::read_to_string(config_file("settings.json"))
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or_default()
@@ -78,165 +59,48 @@ fn load_settings() -> Settings {
 
 #[tauri::command]
 fn save_settings(settings: Settings) -> Result<(), String> {
-    let path = settings_path();
     let json = serde_json::to_string_pretty(&settings).map_err(|e| e.to_string())?;
-    std::fs::write(&path, json).map_err(|e| e.to_string())
+    std::fs::write(config_file("settings.json"), json).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn load_session() -> String {
+    std::fs::read_to_string(config_file("session.json")).unwrap_or_default()
+}
+
+#[tauri::command]
+fn save_session(data: String) -> Result<(), String> {
+    std::fs::write(config_file("session.json"), data).map_err(|e| e.to_string())
 }
 
 // ----------------------------------------------------------------------------
-// Chat (Anthropic Messages API, streaming via SSE)
+// Event payloads
 // ----------------------------------------------------------------------------
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct ChatMessage {
-    role: String,
-    content: String,
-}
 
 #[derive(Serialize, Clone)]
 struct StreamPayload {
     id: String,
     text: String,
 }
-
+#[derive(Serialize, Clone)]
+struct SessionPayload {
+    id: String,
+    session_id: String,
+}
 #[derive(Serialize, Clone)]
 struct DonePayload {
     id: String,
 }
-
 #[derive(Serialize, Clone)]
 struct ErrorPayload {
     id: String,
     message: String,
 }
 
-#[tauri::command]
-async fn chat_send(
-    app: AppHandle,
-    request_id: String,
-    api_key: String,
-    model: String,
-    system: Option<String>,
-    messages: Vec<ChatMessage>,
-    proxy: Option<String>,
-) -> Result<(), String> {
-    if api_key.trim().is_empty() {
-        return Err("کلید API تنظیم نشده است. از تنظیمات (⚙) کلید را وارد کن.".into());
-    }
-
-    let mut body = serde_json::json!({
-        "model": model,
-        "max_tokens": 16000,
-        "stream": true,
-        "messages": messages
-            .iter()
-            .map(|m| serde_json::json!({ "role": m.role, "content": m.content }))
-            .collect::<Vec<_>>(),
-    });
-    if let Some(sys) = system {
-        if !sys.trim().is_empty() {
-            body["system"] = serde_json::json!(sys);
-        }
-    }
-
-    let mut builder = reqwest::Client::builder();
-    if let Some(p) = proxy.as_deref().and_then(normalize_proxy) {
-        builder = builder
-            .proxy(reqwest::Proxy::all(&p).map_err(|e| format!("پراکسی نامعتبر: {}", e))?);
-    }
-    let client = builder.build().map_err(|e| e.to_string())?;
-    let resp = client
-        .post(ANTHROPIC_URL)
-        .header("x-api-key", api_key)
-        .header("anthropic-version", ANTHROPIC_VERSION)
-        .header("content-type", "application/json")
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-
-    if !resp.status().is_success() {
-        let status = resp.status();
-        let text = resp.text().await.unwrap_or_default();
-        let msg = format!("خطای API ({}): {}", status, text);
-        let _ = app.emit(
-            "chat://error",
-            ErrorPayload {
-                id: request_id,
-                message: msg.clone(),
-            },
-        );
-        return Err(msg);
-    }
-
-    let mut stream = resp.bytes_stream();
-    let mut buffer = String::new();
-
-    while let Some(chunk) = stream.next().await {
-        let chunk = match chunk {
-            Ok(c) => c,
-            Err(e) => {
-                let _ = app.emit(
-                    "chat://error",
-                    ErrorPayload {
-                        id: request_id.clone(),
-                        message: e.to_string(),
-                    },
-                );
-                return Err(e.to_string());
-            }
-        };
-        buffer.push_str(&String::from_utf8_lossy(&chunk));
-
-        // SSE events are separated by blank lines; process complete lines.
-        while let Some(pos) = buffer.find('\n') {
-            let line = buffer[..pos].trim_end_matches('\r').to_string();
-            buffer.drain(..=pos);
-
-            let data = match line.strip_prefix("data:") {
-                Some(d) => d.trim(),
-                None => continue,
-            };
-            if data.is_empty() {
-                continue;
-            }
-
-            if let Ok(evt) = serde_json::from_str::<serde_json::Value>(data) {
-                match evt.get("type").and_then(|t| t.as_str()) {
-                    Some("content_block_delta") => {
-                        if let Some(text) = evt
-                            .get("delta")
-                            .and_then(|d| d.get("text"))
-                            .and_then(|t| t.as_str())
-                        {
-                            let _ = app.emit(
-                                "chat://delta",
-                                StreamPayload {
-                                    id: request_id.clone(),
-                                    text: text.to_string(),
-                                },
-                            );
-                        }
-                    }
-                    Some("message_stop") => {
-                        let _ = app.emit("chat://done", DonePayload { id: request_id.clone() });
-                    }
-                    _ => {}
-                }
-            }
-        }
-    }
-
-    let _ = app.emit("chat://done", DonePayload { id: request_id });
-    Ok(())
-}
-
 // ----------------------------------------------------------------------------
-// Code (local `claude` CLI as a coding agent, streaming stdout lines)
+// Claude Code
 // ----------------------------------------------------------------------------
 
-/// Resolve the `claude` binary: prefer ~/.local/bin/claude (the official install
-/// location), fall back to whatever is on PATH.
 fn claude_binary() -> String {
     if let Some(home) = dirs::home_dir() {
         let local = home.join(".local/bin/claude");
@@ -249,8 +113,7 @@ fn claude_binary() -> String {
 
 #[tauri::command]
 fn claude_check() -> Option<String> {
-    let bin = claude_binary();
-    Command::new(&bin)
+    Command::new(claude_binary())
         .arg("--version")
         .output()
         .ok()
@@ -258,13 +121,53 @@ fn claude_check() -> Option<String> {
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
 }
 
+/// Build a short, human-readable label for a tool_use block.
+fn tool_label(block: &serde_json::Value) -> Option<String> {
+    let name = block.get("name")?.as_str()?;
+    let detail = block.get("input").and_then(|i| {
+        for key in ["file_path", "path", "command", "pattern", "url", "prompt"] {
+            if let Some(v) = i.get(key).and_then(|v| v.as_str()) {
+                return Some(v.to_string());
+            }
+        }
+        None
+    });
+    Some(match detail {
+        Some(d) if !d.is_empty() => {
+            let d = if d.len() > 80 { format!("{}…", &d[..80]) } else { d };
+            format!("{} · {}", name, d)
+        }
+        _ => name.to_string(),
+    })
+}
+
+#[tauri::command]
+fn code_stop(state: State<AppState>, request_id: String) {
+    if let Some(pgid) = state.children.lock().unwrap().remove(&request_id) {
+        // negative pid → signal the whole process group
+        unsafe {
+            kill_group(pgid);
+        }
+    }
+}
+
+// SIGTERM the process group (claude + any children it spawned).
+unsafe fn kill_group(pgid: u32) {
+    let _ = Command::new("kill")
+        .arg("-TERM")
+        .arg(format!("-{}", pgid))
+        .status();
+}
+
 #[tauri::command]
 fn code_send(
     app: AppHandle,
+    state: State<AppState>,
     request_id: String,
     prompt: String,
     cwd: Option<String>,
-    proxy: Option<String>,
+    resume: Option<String>,
+    permission: Option<String>,
 ) -> Result<(), String> {
     let bin = claude_binary();
     let mut cmd = Command::new(&bin);
@@ -272,56 +175,95 @@ fn code_send(
         .arg(&prompt)
         .arg("--output-format")
         .arg("stream-json")
-        .arg("--verbose")
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+        .arg("--verbose");
 
-    if let Some(dir) = cwd {
-        if !dir.trim().is_empty() {
-            cmd.current_dir(dir);
-        }
+    if let Some(id) = resume.as_deref().filter(|s| !s.trim().is_empty()) {
+        cmd.arg("--resume").arg(id);
+    }
+    if let Some(mode) = permission.as_deref().filter(|s| !s.trim().is_empty()) {
+        cmd.arg("--permission-mode").arg(mode);
     }
 
-    if let Some(p) = proxy.as_deref().and_then(normalize_proxy) {
-        cmd.env("HTTPS_PROXY", &p).env("HTTP_PROXY", &p);
+    cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+    cmd.process_group(0); // own group so we can cancel the whole tree
+
+    if let Some(dir) = cwd.as_deref().filter(|s| !s.trim().is_empty()) {
+        cmd.current_dir(dir);
     }
 
-    let mut child = cmd.spawn().map_err(|e| {
-        format!("اجرای claude ناموفق بود ({}): {}", bin, e)
-    })?;
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| format!("اجرای claude ناموفق بود ({}): {}", bin, e))?;
+
+    let pgid = child.id();
+    state
+        .children
+        .lock()
+        .unwrap()
+        .insert(request_id.clone(), pgid);
 
     let stdout = child.stdout.take().ok_or("stdout در دسترس نیست")?;
-    let app_out = app.clone();
-    let id_out = request_id.clone();
+    let app = app.clone();
+    let id = request_id.clone();
 
-    // Stream stdout: each line of `stream-json` is a JSON event; pull assistant
-    // text out of it, and fall back to the raw line if it isn't recognizable.
     std::thread::spawn(move || {
         let reader = BufReader::new(stdout);
+        let mut needs_login = false;
+        let mut sent_session = false;
+
         for line in reader.lines().map_while(Result::ok) {
             if line.trim().is_empty() {
                 continue;
             }
-            let text = extract_cli_text(&line);
-            if let Some(text) = text {
-                if !text.is_empty() {
-                    let _ = app_out.emit(
-                        "code://delta",
-                        StreamPayload {
-                            id: id_out.clone(),
-                            text,
-                        },
+            if line.contains("authentication_failed") || line.contains("Not logged in") {
+                needs_login = true;
+                continue;
+            }
+            let v: serde_json::Value = match serde_json::from_str(&line) {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+
+            // capture the session id once (for multi-turn --resume)
+            if !sent_session {
+                if let Some(sid) = v.get("session_id").and_then(|s| s.as_str()) {
+                    sent_session = true;
+                    let _ = app.emit(
+                        "code://session",
+                        SessionPayload { id: id.clone(), session_id: sid.to_string() },
                     );
                 }
             }
-        }
-    });
 
-    // Wait for the process on a separate thread so we don't block the UI, then
-    // signal completion (or surface stderr on failure).
-    let app_done = app.clone();
-    let id_done = request_id.clone();
-    std::thread::spawn(move || {
+            if v.get("type").and_then(|t| t.as_str()) == Some("assistant") {
+                if let Some(content) = v.get("message").and_then(|m| m.get("content")).and_then(|c| c.as_array()) {
+                    for block in content {
+                        match block.get("type").and_then(|t| t.as_str()) {
+                            Some("text") => {
+                                if let Some(txt) = block.get("text").and_then(|t| t.as_str()) {
+                                    if !txt.is_empty() {
+                                        let _ = app.emit(
+                                            "code://delta",
+                                            StreamPayload { id: id.clone(), text: txt.to_string() },
+                                        );
+                                    }
+                                }
+                            }
+                            Some("tool_use") => {
+                                if let Some(label) = tool_label(block) {
+                                    let _ = app.emit(
+                                        "code://tool",
+                                        StreamPayload { id: id.clone(), text: label },
+                                    );
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        }
+
         let stderr_text = child
             .stderr
             .take()
@@ -332,33 +274,31 @@ fn code_send(
                 s
             })
             .unwrap_or_default();
+        let status = child.wait();
 
-        match child.wait() {
-            Ok(status) if status.success() => {
-                let _ = app_done.emit("code://done", DonePayload { id: id_done });
+        if let Some(st) = app.try_state::<AppState>() {
+            st.children.lock().unwrap().remove(&id);
+        }
+
+        if needs_login {
+            let _ = app.emit("code://error", ErrorPayload { id, message: "NOT_LOGGED_IN".into() });
+            return;
+        }
+        match status {
+            Ok(s) if s.success() => {
+                let _ = app.emit("code://done", DonePayload { id });
             }
-            Ok(status) => {
+            Ok(s) => {
+                // a SIGTERM (cancel) shows up as a signal exit — treat as a clean stop
                 let msg = if stderr_text.trim().is_empty() {
-                    format!("claude با کد {} خارج شد", status)
+                    format!("claude با کد {} خارج شد", s)
                 } else {
                     stderr_text
                 };
-                let _ = app_done.emit(
-                    "code://error",
-                    ErrorPayload {
-                        id: id_done,
-                        message: msg,
-                    },
-                );
+                let _ = app.emit("code://error", ErrorPayload { id, message: msg });
             }
             Err(e) => {
-                let _ = app_done.emit(
-                    "code://error",
-                    ErrorPayload {
-                        id: id_done,
-                        message: e.to_string(),
-                    },
-                );
+                let _ = app.emit("code://error", ErrorPayload { id, message: e.to_string() });
             }
         }
     });
@@ -366,45 +306,64 @@ fn code_send(
     Ok(())
 }
 
-/// Pull human-readable text out of one `stream-json` line from the Claude CLI.
-/// Recognizes the `assistant` message events and the final `result`; ignores
-/// system/tool bookkeeping events.
-fn extract_cli_text(line: &str) -> Option<String> {
-    let v: serde_json::Value = serde_json::from_str(line).ok()?;
-    match v.get("type").and_then(|t| t.as_str()) {
-        Some("assistant") => {
-            let content = v.get("message")?.get("content")?.as_array()?;
-            let mut out = String::new();
-            for block in content {
-                if block.get("type").and_then(|t| t.as_str()) == Some("text") {
-                    if let Some(t) = block.get("text").and_then(|t| t.as_str()) {
-                        out.push_str(t);
-                    }
-                }
+/// Open a native terminal emulator at the given folder.
+#[tauri::command]
+fn open_terminal(cwd: Option<String>) -> Result<(), String> {
+    let dir = cwd
+        .filter(|s| !s.trim().is_empty())
+        .or_else(|| dirs::home_dir().map(|p| p.to_string_lossy().into_owned()))
+        .unwrap_or_else(|| ".".to_string());
+
+    // try the common emulators in order
+    let attempts: Vec<(&str, Vec<String>)> = vec![
+        ("gnome-terminal", vec![format!("--working-directory={}", dir)]),
+        ("konsole", vec!["--workdir".into(), dir.clone()]),
+        ("xfce4-terminal", vec![format!("--working-directory={}", dir)]),
+        ("tilix", vec!["-w".into(), dir.clone()]),
+        ("kitty", vec!["-d".into(), dir.clone()]),
+        ("alacritty", vec!["--working-directory".into(), dir.clone()]),
+        ("x-terminal-emulator", vec![]),
+        ("xterm", vec![]),
+    ];
+
+    for (term, args) in attempts {
+        if which(term) {
+            let mut c = Command::new(term);
+            c.args(&args);
+            if term == "x-terminal-emulator" || term == "xterm" {
+                c.current_dir(&dir);
             }
-            if out.is_empty() {
-                None
-            } else {
-                Some(out)
+            if c.spawn().is_ok() {
+                return Ok(());
             }
         }
-        // The final result is already covered by the streamed assistant text.
-        Some("result") | Some("system") | Some("user") => None,
-        _ => None,
     }
+    Err("هیچ ترمینالی پیدا نشد".into())
+}
+
+fn which(bin: &str) -> bool {
+    Command::new("which")
+        .arg(bin)
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .manage(AppState::default())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             load_settings,
             save_settings,
-            chat_send,
+            load_session,
+            save_session,
             claude_check,
-            code_send
+            code_send,
+            code_stop,
+            open_terminal
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
