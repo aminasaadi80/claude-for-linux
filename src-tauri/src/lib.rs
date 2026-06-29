@@ -98,6 +98,12 @@ struct ErrorPayload {
     id: String,
     message: String,
 }
+#[derive(Serialize, Clone)]
+struct UsagePayload {
+    id: String,
+    input: u64,
+    output: u64,
+}
 
 // ----------------------------------------------------------------------------
 // Claude Code
@@ -264,6 +270,16 @@ fn code_send(
                     }
                 }
             }
+
+            // token usage (final totals arrive on the `result` line)
+            if v.get("type").and_then(|t| t.as_str()) == Some("result") {
+                if let Some(u) = v.get("usage") {
+                    let g = |k: &str| u.get(k).and_then(|x| x.as_u64()).unwrap_or(0);
+                    let input = g("input_tokens") + g("cache_read_input_tokens") + g("cache_creation_input_tokens");
+                    let output = g("output_tokens");
+                    let _ = app.emit("code://usage", UsagePayload { id: id.clone(), input, output });
+                }
+            }
         }
 
         let stderr_text = child
@@ -382,7 +398,7 @@ fn pty_open(
     cwd: Option<String>,
     rows: u16,
     cols: u16,
-    resume: Option<bool>,
+    extra_args: Option<Vec<String>>,
 ) -> Result<(), String> {
     let pty = native_pty_system();
     let pair = pty
@@ -391,9 +407,13 @@ fn pty_open(
 
     let mut cmd = CommandBuilder::new(claude_binary());
     cmd.env("TERM", "xterm-256color");
-    // when restoring a saved terminal tab, continue that folder's last conversation
-    if resume == Some(true) {
-        cmd.arg("--continue");
+    // e.g. ["--continue"] for restored tabs, ["--resume"] for the session picker
+    if let Some(args) = extra_args {
+        for a in args {
+            if !a.trim().is_empty() {
+                cmd.arg(a);
+            }
+        }
     }
     if let Some(dir) = cwd.as_deref().filter(|s| !s.trim().is_empty()) {
         cmd.cwd(dir);
@@ -452,6 +472,12 @@ fn pty_close(state: State<PtyState>, term_id: String) {
     }
 }
 
+/// Write text to a file (used for "export conversation").
+#[tauri::command]
+fn write_text_file(path: String, content: String) -> Result<(), String> {
+    std::fs::write(path, content).map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -459,6 +485,7 @@ pub fn run() {
         .manage(PtyState::default())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
         .invoke_handler(tauri::generate_handler![
             load_settings,
             save_settings,
@@ -471,7 +498,8 @@ pub fn run() {
             pty_open,
             pty_write,
             pty_resize,
-            pty_close
+            pty_close,
+            write_text_file
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

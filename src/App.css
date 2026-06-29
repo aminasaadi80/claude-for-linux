@@ -13,6 +13,17 @@
   font-family: -apple-system, "Segoe UI", Roboto, "Vazirmatn", system-ui, sans-serif;
 }
 
+:root[data-theme="light"] {
+  --bg: #f4f1ea;
+  --bg-soft: #ece5da;
+  --panel: #e2dacd;
+  --border: #d2c8b8;
+  --text: #2a2521;
+  --muted: #6b6258;
+  --user: #e7ded0;
+  --assistant: #efe9df;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -178,9 +189,34 @@ body,
   border-color: var(--accent);
   background: var(--bg-soft);
 }
+/* distinguish chat vs terminal tabs */
+.tab-terminal {
+  border-inline-start: 3px solid #5aa7a0;
+}
+.tab-terminal.active {
+  border-color: #5aa7a0;
+  background: #1d2422;
+}
+.tab-chat {
+  border-inline-start: 3px solid var(--accent);
+}
+.tab-ico {
+  font-size: 12px;
+  opacity: 0.85;
+}
 .tab-title {
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.tab-edit {
+  background: var(--bg);
+  border: 1px solid var(--accent);
+  color: var(--text);
+  border-radius: 5px;
+  padding: 2px 6px;
+  font-size: 13px;
+  font-family: inherit;
+  width: 110px;
 }
 .tab-close {
   opacity: 0.6;
@@ -244,6 +280,11 @@ body,
 .browse-btn:hover {
   border-color: var(--accent);
 }
+.browse-btn.on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
 .cli-ok {
   color: #6cc070;
   white-space: nowrap;
@@ -296,7 +337,7 @@ body,
   white-space: pre-wrap;
   word-break: break-word;
   line-height: 1.7;
-  font-size: 14.5px;
+  font-size: var(--chat-font, 14.5px);
   flex: 1;
   text-align: right;
 }
@@ -425,6 +466,93 @@ body,
   }
 }
 
+/* copy button on messages */
+.msg {
+  position: relative;
+}
+.copy-btn {
+  position: absolute;
+  top: 4px;
+  inset-inline-end: 4px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  border-radius: 6px;
+  padding: 2px 7px;
+  font-size: 11px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.msg:hover .copy-btn {
+  opacity: 1;
+}
+.copy-btn:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+/* split view (chat + terminal side by side) */
+.chat-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.chat-body.split {
+  flex-direction: row;
+}
+.chat-col {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.split-term {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  border-inline-start: 1px solid var(--border);
+}
+
+/* image preview above the composer */
+.img-preview {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 16px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-soft);
+}
+.img-preview img {
+  max-height: 56px;
+  max-width: 120px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+}
+.img-preview .rm {
+  cursor: pointer;
+  color: var(--muted);
+}
+
+/* status bar */
+.statusbar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 4px 14px;
+  background: var(--bg-soft);
+  border-top: 1px solid var(--border);
+  font-size: 11.5px;
+  color: var(--muted);
+  font-family: ui-monospace, monospace;
+}
+.statusbar .sb-spacer {
+  margin-inline-start: auto;
+}
+
 /* ---- composer ---- */
 .composer {
   display: flex;
@@ -475,7 +603,7 @@ body,
   flex: 1;
   min-height: 0;
   /* extra bottom gap so Claude's input box / status line isn't clipped */
-  padding: 8px 10px 18px;
+  padding: 8px 10px 30px;
   background: #1a1714;
   overflow: hidden;
 }

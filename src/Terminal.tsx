@@ -16,18 +16,20 @@ function b64ToBytes(b64: string): Uint8Array {
 export default function TerminalView({
   termId,
   cwd,
-  resume,
+  extraArgs,
+  fontSize,
 }: {
   termId: string;
   cwd: string;
-  resume?: boolean;
+  extraArgs?: string[];
+  fontSize?: number;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const term = new Terminal({
       fontFamily: 'ui-monospace, "JetBrains Mono", "Cascadia Code", monospace',
-      fontSize: 13,
+      fontSize: fontSize ?? 13,
       cursorBlink: true,
       theme: {
         background: "#1a1714",
@@ -83,7 +85,7 @@ export default function TerminalView({
       cwd: cwd || null,
       rows: term.rows,
       cols: term.cols,
-      resume: resume ?? false,
+      extraArgs: extraArgs ?? [],
     }).catch(() => {});
 
     const unData = listen("pty://data", (e: { payload: { id: string; data: string } }) => {

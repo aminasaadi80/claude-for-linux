@@ -1,10 +1,15 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { open } from "@tauri-apps/plugin-dialog";
+import { open, save } from "@tauri-apps/plugin-dialog";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import {
+  isPermissionGranted,
+  requestPermission,
+  sendNotification,
+} from "@tauri-apps/plugin-notification";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
@@ -15,10 +20,14 @@ import "./App.css";
 function quotePath(p: string): string {
   return /\s/.test(p) ? `"${p}"` : p;
 }
+function isImage(p: string): boolean {
+  return /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(p);
+}
 
 type Role = "user" | "assistant";
 type Lang = "en" | "fa";
 type Perm = "default" | "acceptEdits" | "bypassPermissions";
+type Theme = "dark" | "light";
 
 interface Message {
   role: Role;
@@ -27,7 +36,10 @@ interface Message {
   error?: boolean;
   kind?: "tool";
 }
-
+interface Usage {
+  input: number;
+  output: number;
+}
 interface Tab {
   id: string;
   kind: "chat" | "terminal";
@@ -36,9 +48,10 @@ interface Tab {
   cwd: string;
   sessionId?: string;
   permission: Perm;
-  restored?: boolean; // transient: a terminal tab restored from disk → open with --continue
+  usage?: Usage;
+  split?: boolean;
+  restored?: boolean;
 }
-
 interface Settings {
   lang: Lang;
 }
@@ -56,12 +69,17 @@ const STR = {
     settings: "Settings",
     newTab: "New chat tab",
     newTerm: "New terminal (full Claude Code)",
+    resume: "Resume a past session",
     tab: (n: number) => `Chat ${n}`,
     tabTerm: (n: number) => `Terminal ${n}`,
     folder: "Project folder:",
     folderPick: "Click to choose… (empty = current folder)",
     choose: "Choose folder",
     terminal: "Open external terminal here",
+    split: "Split with a terminal",
+    exportMd: "Export conversation (Markdown)",
+    copy: "Copy",
+    copied: "Copied",
     clearField: "Clear",
     perm: "Permissions",
     cliNotFound: "claude not found",
@@ -69,9 +87,15 @@ const STR = {
     ph: "Command for Claude Code…",
     send: "Send",
     stop: "Stop",
+    done: "Finished",
+    tokens: "tokens",
     cliHint:
       "Claude Code uses your existing terminal login (run `claude` once in a terminal to authenticate). No API key needed.",
     language: "Language",
+    theme: "Theme",
+    dark: "Dark",
+    light: "Light",
+    fontSize: "Font size",
     cancel: "Close",
     about: "About",
     madeBy: "Made by",
@@ -87,12 +111,17 @@ const STR = {
     settings: "تنظیمات",
     newTab: "تب چت جدید",
     newTerm: "ترمینال جدید (Claude Code کامل)",
+    resume: "ادامه‌ی یک جلسه‌ی قبلی",
     tab: (n: number) => `چت ${n}`,
     tabTerm: (n: number) => `ترمینال ${n}`,
     folder: "پوشه‌ی پروژه:",
     folderPick: "برای انتخاب کلیک کن… (خالی = پوشه‌ی فعلی)",
     choose: "انتخاب پوشه",
     terminal: "باز کردن ترمینال بیرونی در این پوشه",
+    split: "تقسیم با یک ترمینال",
+    exportMd: "خروجی گفتگو (Markdown)",
+    copy: "کپی",
+    copied: "کپی شد",
     clearField: "پاک کردن",
     perm: "دسترسی‌ها",
     cliNotFound: "claude یافت نشد",
@@ -100,9 +129,15 @@ const STR = {
     ph: "دستور برای Claude Code…",
     send: "ارسال",
     stop: "توقف",
+    done: "تمام شد",
+    tokens: "توکن",
     cliHint:
       "Claude Code از لاگین موجودِ ترمینالت استفاده می‌کند (یک‌بار در ترمینال `claude` بزن و احراز هویت کن). به کلید API نیازی نیست.",
     language: "زبان",
+    theme: "تم",
+    dark: "تیره",
+    light: "روشن",
+    fontSize: "اندازه فونت",
     cancel: "بستن",
     about: "درباره",
     madeBy: "ساخته‌ی",
@@ -121,6 +156,11 @@ interface StreamPayload {
 interface SessionPayload {
   id: string;
   session_id: string;
+}
+interface UsagePayload {
+  id: string;
+  input: number;
+  output: number;
 }
 interface IdPayload {
   id: string;
@@ -143,23 +183,50 @@ function newTab(lang: Lang, kind: "chat" | "terminal" = "chat", cwd = ""): Tab {
   };
 }
 
+async function notify(title: string, body: string) {
+  try {
+    let granted = await isPermissionGranted();
+    if (!granted) granted = (await requestPermission()) === "granted";
+    if (granted) sendNotification({ title, body });
+  } catch {
+    /* ignore */
+  }
+}
+
 function App() {
   const [settings, setSettings] = useState<Settings>({ lang: "en" });
   const lang = settings.lang;
   const t = STR[lang];
+
+  const [theme, setThemeState] = useState<Theme>(
+    () => (localStorage.getItem("theme") as Theme) || "dark"
+  );
+  const [fontSize, setFontSizeState] = useState<number>(
+    () => Number(localStorage.getItem("fontSize")) || 14
+  );
 
   const [showSettings, setShowSettings] = useState(false);
   const [tabs, setTabs] = useState<Tab[]>(() => [newTab("en")]);
   const [activeId, setActiveId] = useState<string>(() => tabs[0].id);
   const [input, setInput] = useState("");
   const [dragOver, setDragOver] = useState(false);
+  const [imgPreview, setImgPreview] = useState<string | null>(null);
   const [claudeVersion, setClaudeVersion] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState("");
 
   const reqToTab = useRef<Record<string, string>>({});
-  const tabReq = useRef<Record<string, string>>({}); // tabId -> in-flight reqId (for Stop)
+  const tabReq = useRef<Record<string, string>>({});
   const tRef = useRef(t);
   tRef.current = t;
   const activeRef = useRef<{ id: string; kind: "chat" | "terminal" }>({ id: "", kind: "chat" });
+  const tabsRef = useRef<Tab[]>(tabs);
+  tabsRef.current = tabs;
+  const activeIdRef = useRef(activeId);
+  activeIdRef.current = activeId;
+  const langRef = useRef(lang);
+  langRef.current = lang;
+  const dragTab = useRef<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const loaded = useRef(false);
   const saveTimer = useRef<number | undefined>(undefined);
@@ -169,9 +236,22 @@ function App() {
   const busy = !!messages[messages.length - 1]?.streaming;
   activeRef.current = { id: activeTab?.id ?? "", kind: activeTab?.kind ?? "chat" };
 
+  // apply theme + font size (persisted in localStorage)
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+    localStorage.setItem("theme", theme);
+  }, [theme]);
+  useEffect(() => {
+    document.documentElement.style.setProperty("--chat-font", fontSize + "px");
+    localStorage.setItem("fontSize", String(fontSize));
+  }, [fontSize]);
+
   useEffect(() => {
     invoke<Settings>("load_settings").then((s) => setSettings({ lang: (s.lang as Lang) || "en" }));
     invoke<string | null>("claude_check").then(setClaudeVersion);
+    isPermissionGranted().then((g) => {
+      if (!g) requestPermission();
+    });
     invoke<string>("load_session")
       .then((raw) => {
         if (raw) {
@@ -182,7 +262,6 @@ function App() {
                 ...tb,
                 kind: tb.kind ?? "chat",
                 permission: tb.permission ?? "default",
-                // restored terminal tabs reopen with --continue
                 restored: tb.kind === "terminal" ? true : undefined,
               }))
             );
@@ -197,15 +276,13 @@ function App() {
       });
   }, []);
 
+  // auto-save (disk → survives app & system restart)
   useEffect(() => {
     if (!loaded.current) return;
     window.clearTimeout(saveTimer.current);
     saveTimer.current = window.setTimeout(() => {
-      // persist both chat and terminal tabs (to disk → survives app + system restart).
-      // a terminal's live process can't be frozen, so on reopen it re-runs claude
-      // with --continue to resume that folder's last conversation.
       const sanitized = tabs.map((tb) => {
-        const { restored: _restored, ...rest } = tb;
+        const { restored: _r, ...rest } = tb;
         return { ...rest, messages: tb.messages.map((m) => ({ ...m, streaming: false })) };
       });
       invoke("save_session", {
@@ -237,7 +314,6 @@ function App() {
         if (tb.id !== tabId) return tb;
         const msgs = [...tb.messages];
         const toolMsg: Message = { role: "assistant", kind: "tool", content: label };
-        // keep the trailing streaming placeholder last
         if (msgs.length && msgs[msgs.length - 1].streaming) msgs.splice(msgs.length - 1, 0, toolMsg);
         else msgs.push(toolMsg);
         return { ...tb, messages: msgs };
@@ -249,6 +325,12 @@ function App() {
     const tabId = reqToTab.current[reqId];
     if (!tabId) return;
     setTabs((ts) => ts.map((tb) => (tb.id === tabId ? { ...tb, sessionId: sid } : tb)));
+  }, []);
+
+  const setUsage = useCallback((reqId: string, u: Usage) => {
+    const tabId = reqToTab.current[reqId];
+    if (!tabId) return;
+    setTabs((ts) => ts.map((tb) => (tb.id === tabId ? { ...tb, usage: u } : tb)));
   }, []);
 
   const finishReq = useCallback((reqId: string, asError?: string) => {
@@ -279,7 +361,17 @@ function App() {
     u.push(listen("code://delta", (e: { payload: StreamPayload }) => appendDelta(e.payload.id, e.payload.text)));
     u.push(listen("code://tool", (e: { payload: StreamPayload }) => appendTool(e.payload.id, e.payload.text)));
     u.push(listen("code://session", (e: { payload: SessionPayload }) => setSession(e.payload.id, e.payload.session_id)));
-    u.push(listen("code://done", (e: { payload: IdPayload }) => finishReq(e.payload.id)));
+    u.push(listen("code://usage", (e: { payload: UsagePayload }) => setUsage(e.payload.id, { input: e.payload.input, output: e.payload.output })));
+    u.push(
+      listen("code://done", (e: { payload: IdPayload }) => {
+        const tabId = reqToTab.current[e.payload.id];
+        finishReq(e.payload.id);
+        if (document.hidden && tabId) {
+          const tb = tabsRef.current.find((x) => x.id === tabId);
+          notify(tRef.current.brand, `${tRef.current.done} — ${tb?.title ?? ""}`);
+        }
+      })
+    );
     u.push(
       listen("code://error", (e: { payload: ErrPayload }) =>
         finishReq(
@@ -289,7 +381,7 @@ function App() {
       )
     );
     return () => u.forEach((p) => p.then((f) => f()));
-  }, [appendDelta, appendTool, setSession, finishReq]);
+  }, [appendDelta, appendTool, setSession, setUsage, finishReq]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo(0, scrollRef.current.scrollHeight);
@@ -299,7 +391,7 @@ function App() {
     getCurrentWindow().setTitle(t.brand).catch(() => {});
   }, [t.brand]);
 
-  // drag & drop files → insert paths
+  // drag & drop files → chat input (with image preview) or into the terminal
   useEffect(() => {
     const un = getCurrentWebview().onDragDropEvent((event) => {
       const p = event.payload;
@@ -307,20 +399,66 @@ function App() {
       else if (p.type === "leave") setDragOver(false);
       else if (p.type === "drop") {
         setDragOver(false);
-        const paths = (p.paths || []).map(quotePath);
+        const raw = p.paths || [];
+        const paths = raw.map(quotePath);
         if (!paths.length) return;
         const joined = paths.join(" ");
         if (activeRef.current.kind === "terminal") {
-          // write the path(s) straight into the running terminal
           invoke("pty_write", { termId: activeRef.current.id, data: joined + " " }).catch(() => {});
         } else {
           setInput((prev) => (prev ? prev + " " : "") + joined);
+          const img = raw.find((x) => isImage(x));
+          if (img) setImgPreview(img);
         }
       }
     });
     return () => {
       un.then((f) => f());
     };
+  }, []);
+
+  // global keyboard shortcuts
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!e.ctrlKey) return;
+      const code = e.code;
+      const ts = tabsRef.current;
+      const idx = ts.findIndex((x) => x.id === activeIdRef.current);
+      if (code === "KeyT" && !e.shiftKey) {
+        e.preventDefault();
+        const tb = newTab(langRef.current);
+        setTabs((p) => [...p, tb]);
+        setActiveId(tb.id);
+      } else if (code === "KeyT" && e.shiftKey) {
+        e.preventDefault();
+        const cur = ts.find((x) => x.id === activeIdRef.current);
+        const tb = newTab(langRef.current, "terminal", cur?.cwd || "");
+        setTabs((p) => [...p, tb]);
+        setActiveId(tb.id);
+      } else if (code === "KeyW") {
+        e.preventDefault();
+        const id = activeIdRef.current;
+        setTabs((p) => {
+          let rest = p.filter((x) => x.id !== id);
+          if (rest.length === 0) rest = [newTab(langRef.current)];
+          setActiveId(rest[Math.max(0, Math.min(idx, rest.length - 1))].id);
+          return rest;
+        });
+      } else if (code === "Tab") {
+        e.preventDefault();
+        if (ts.length < 2) return;
+        const next = (idx + (e.shiftKey ? -1 : 1) + ts.length) % ts.length;
+        setActiveId(ts[next].id);
+      } else if (/^Digit[1-9]$/.test(code)) {
+        const n = Number(code.slice(5)) - 1;
+        if (ts[n]) {
+          e.preventDefault();
+          setActiveId(ts[n].id);
+        }
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
   }, []);
 
   // --- settings/tabs ---
@@ -334,8 +472,9 @@ function App() {
     setTabs((ts) => [...ts, tb]);
     setActiveId(tb.id);
   };
-  const addTerminalTab = () => {
+  const addTerminalTab = (extra?: string[]) => {
     const tb = newTab(lang, "terminal", activeTab?.cwd || "");
+    if (extra) (tb as Tab & { _extra?: string[] })._extra = extra;
     setTabs((ts) => [...ts, tb]);
     setActiveId(tb.id);
   };
@@ -350,6 +489,29 @@ function App() {
   const patchActive = (patch: Partial<Tab>) =>
     setTabs((ts) => ts.map((tb) => (tb.id === activeTab.id ? { ...tb, ...patch } : tb)));
 
+  const reorder = (targetId: string) => {
+    const from = dragTab.current;
+    dragTab.current = null;
+    if (!from || from === targetId) return;
+    setTabs((ts) => {
+      const arr = [...ts];
+      const fi = arr.findIndex((x) => x.id === from);
+      const ti = arr.findIndex((x) => x.id === targetId);
+      if (fi < 0 || ti < 0) return ts;
+      const [moved] = arr.splice(fi, 1);
+      arr.splice(ti, 0, moved);
+      return arr;
+    });
+  };
+  const commitRename = () => {
+    const id = editingId;
+    if (id) {
+      const title = editDraft.trim();
+      setTabs((ts) => ts.map((tb) => (tb.id === id ? { ...tb, title: title || tb.title } : tb)));
+    }
+    setEditingId(null);
+  };
+
   const pickFolder = async () => {
     const selected = await open({
       directory: true,
@@ -361,6 +523,21 @@ function App() {
   };
   const openTerminal = () => invoke("open_terminal", { cwd: activeTab?.cwd || null }).catch(() => {});
 
+  const exportMd = async () => {
+    if (!activeTab) return;
+    const md = activeTab.messages
+      .filter((m) => m.kind !== "tool")
+      .map((m) => (m.role === "user" ? "### 🧑\n\n" : "### ✳ Claude\n\n") + m.content)
+      .join("\n\n---\n\n");
+    const path = await save({
+      defaultPath: `${activeTab.title}.md`,
+      filters: [{ name: "Markdown", extensions: ["md"] }],
+    });
+    if (path) await invoke("write_text_file", { path, content: md }).catch(() => {});
+  };
+
+  const copyMsg = (content: string) => navigator.clipboard.writeText(content).catch(() => {});
+
   // --- send / stop ---
   const send = async () => {
     const text = input.trim();
@@ -369,6 +546,7 @@ function App() {
     reqToTab.current[reqId] = activeTab.id;
     tabReq.current[activeTab.id] = reqId;
     setInput("");
+    setImgPreview(null);
 
     const userMsg: Message = { role: "user", content: text };
     const placeholder: Message = { role: "assistant", content: "", streaming: true };
@@ -387,7 +565,7 @@ function App() {
         requestId: reqId,
         prompt: text,
         cwd: activeTab.cwd || null,
-        resume: activeTab.sessionId || null, // continue this tab's conversation
+        resume: activeTab.sessionId || null,
         permission: activeTab.permission,
       });
     } catch (err) {
@@ -408,7 +586,7 @@ function App() {
   };
   const clearChat = () => {
     if (busy) return;
-    patchActive({ messages: [], sessionId: undefined });
+    patchActive({ messages: [], sessionId: undefined, usage: undefined });
   };
 
   return (
@@ -424,6 +602,11 @@ function App() {
           <span>{t.brand}</span>
         </div>
         <div className="actions">
+          {activeTab?.kind === "chat" && (
+            <button onClick={exportMd} title={t.exportMd}>
+              ⬇
+            </button>
+          )}
           <button onClick={clearChat} title={t.clear}>
             🗑
           </button>
@@ -437,11 +620,35 @@ function App() {
         {tabs.map((tb) => (
           <div
             key={tb.id}
-            className={`tab ${tb.id === activeId ? "active" : ""}`}
+            className={`tab tab-${tb.kind} ${tb.id === activeId ? "active" : ""}`}
+            draggable
+            onDragStart={() => (dragTab.current = tb.id)}
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={() => reorder(tb.id)}
             onClick={() => setActiveId(tb.id)}
+            onDoubleClick={() => {
+              setEditingId(tb.id);
+              setEditDraft(tb.title);
+            }}
             title={tb.title}
           >
-            <span className="tab-title">{tb.title}</span>
+            <span className="tab-ico">{tb.kind === "terminal" ? "🖥" : "💬"}</span>
+            {editingId === tb.id ? (
+              <input
+                className="tab-edit"
+                autoFocus
+                value={editDraft}
+                onChange={(e) => setEditDraft(e.target.value)}
+                onClick={(e) => e.stopPropagation()}
+                onBlur={commitRename}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") commitRename();
+                  if (e.key === "Escape") setEditingId(null);
+                }}
+              />
+            ) : (
+              <span className="tab-title">{tb.title}</span>
+            )}
             {tabs.length > 1 && (
               <span
                 className="tab-close"
@@ -458,115 +665,159 @@ function App() {
         <button className="tab-add" onClick={addTab} title={t.newTab}>
           ＋
         </button>
-        <button className="tab-add" onClick={addTerminalTab} title={t.newTerm}>
+        <button className="tab-add" onClick={() => addTerminalTab()} title={t.newTerm}>
           🖥
+        </button>
+        <button className="tab-add" onClick={() => addTerminalTab(["--resume"])} title={t.resume}>
+          ↺
         </button>
       </div>
 
-      {/* terminal tabs stay mounted (hidden when inactive) so they keep running across tab switches */}
+      {/* terminal tabs stay mounted (hidden when inactive) so they keep running */}
       {tabs
         .filter((tb) => tb.kind === "terminal")
         .map((tb) => (
-          <div
-            key={tb.id}
-            className="term-wrap"
-            style={{ display: tb.id === activeId ? "flex" : "none" }}
-          >
-            <TerminalView termId={tb.id} cwd={tb.cwd} resume={tb.restored} />
+          <div key={tb.id} className="term-wrap" style={{ display: tb.id === activeId ? "flex" : "none" }}>
+            <TerminalView
+              termId={tb.id}
+              cwd={tb.cwd}
+              fontSize={fontSize}
+              extraArgs={tb.restored ? ["--continue"] : (tb as Tab & { _extra?: string[] })._extra ?? []}
+            />
           </div>
         ))}
 
       {activeTab?.kind === "chat" && (
         <>
-      <div className="cwd-bar">
-        <label>{t.folder}</label>
-        <input
-          type="text"
-          placeholder={t.folderPick}
-          value={activeTab?.cwd ?? ""}
-          readOnly
-          onClick={pickFolder}
-          style={{ cursor: "pointer" }}
-        />
-        <button className="browse-btn" onClick={pickFolder} title={t.choose}>
-          📁
-        </button>
-        <button className="browse-btn" onClick={openTerminal} title={t.terminal}>
-          🖥
-        </button>
-        {activeTab?.cwd && (
-          <button className="browse-btn" onClick={() => patchActive({ cwd: "" })} title={t.clearField}>
-            ✕
-          </button>
-        )}
-        <select
-          className="perm-select"
-          value={activeTab?.permission ?? "default"}
-          onChange={(e) => patchActive({ permission: e.target.value as Perm })}
-          title={t.perm}
-        >
-          {PERMS.map((p) => (
-            <option key={p.id} value={p.id}>
-              {lang === "fa" ? p.fa : p.en}
-            </option>
-          ))}
-        </select>
-        <span className={claudeVersion ? "cli-ok" : "cli-bad"}>
-          {claudeVersion ? `claude ${claudeVersion}` : t.cliNotFound}
-        </span>
-      </div>
+          <div className="cwd-bar">
+            <label>{t.folder}</label>
+            <input
+              type="text"
+              placeholder={t.folderPick}
+              value={activeTab?.cwd ?? ""}
+              readOnly
+              onClick={pickFolder}
+              style={{ cursor: "pointer" }}
+            />
+            <button className="browse-btn" onClick={pickFolder} title={t.choose}>
+              📁
+            </button>
+            <button className="browse-btn" onClick={openTerminal} title={t.terminal}>
+              🖥
+            </button>
+            <button
+              className={`browse-btn ${activeTab.split ? "on" : ""}`}
+              onClick={() => patchActive({ split: !activeTab.split })}
+              title={t.split}
+            >
+              ⊟
+            </button>
+            {activeTab?.cwd && (
+              <button className="browse-btn" onClick={() => patchActive({ cwd: "" })} title={t.clearField}>
+                ✕
+              </button>
+            )}
+            <select
+              className="perm-select"
+              value={activeTab?.permission ?? "default"}
+              onChange={(e) => patchActive({ permission: e.target.value as Perm })}
+              title={t.perm}
+            >
+              {PERMS.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {lang === "fa" ? p.fa : p.en}
+                </option>
+              ))}
+            </select>
+          </div>
 
-      <div className="messages" ref={scrollRef}>
-        {messages.length === 0 && <div className="empty">{t.empty}</div>}
-        {messages.map((m, i) =>
-          m.kind === "tool" ? (
-            <div key={i} className="tool-line">
-              <span className="tool-ico">🔧</span>
-              {m.content}
-            </div>
-          ) : (
-            <div key={i} className={`msg ${m.role} ${m.error ? "err" : ""}`}>
-              <div className="avatar">{m.role === "user" ? "🧑" : "✳"}</div>
-              <div className="bubble">
-                {m.role === "assistant" && m.content ? (
-                  <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
-                    {m.content}
-                  </ReactMarkdown>
-                ) : (
-                  m.content
+          <div className={`chat-body ${activeTab.split ? "split" : ""}`}>
+            <div className="chat-col">
+              <div className="messages" ref={scrollRef}>
+                {messages.length === 0 && <div className="empty">{t.empty}</div>}
+                {messages.map((m, i) =>
+                  m.kind === "tool" ? (
+                    <div key={i} className="tool-line">
+                      <span className="tool-ico">🔧</span>
+                      {m.content}
+                    </div>
+                  ) : (
+                    <div key={i} className={`msg ${m.role} ${m.error ? "err" : ""}`}>
+                      <div className="avatar">{m.role === "user" ? "🧑" : "✳"}</div>
+                      <div className="bubble">
+                        {m.role === "assistant" && m.content ? (
+                          <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
+                            {m.content}
+                          </ReactMarkdown>
+                        ) : (
+                          m.content
+                        )}
+                        {m.streaming && <span className="cursor">▍</span>}
+                      </div>
+                      {m.content && !m.streaming && (
+                        <button className="copy-btn" onClick={() => copyMsg(m.content)} title={t.copy}>
+                          ⧉
+                        </button>
+                      )}
+                    </div>
+                  )
                 )}
-                {m.streaming && <span className="cursor">▍</span>}
+              </div>
+
+              {imgPreview && (
+                <div className="img-preview">
+                  <img src={convertFileSrc(imgPreview)} alt="" />
+                  <span className="rm" onClick={() => setImgPreview(null)}>
+                    ✕
+                  </span>
+                </div>
+              )}
+
+              <div className="composer">
+                <textarea
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={onKeyDown}
+                  placeholder={t.ph}
+                  rows={1}
+                />
+                {busy ? (
+                  <button className="stop-btn" onClick={stop}>
+                    ⏹ {t.stop}
+                  </button>
+                ) : (
+                  <button onClick={send} disabled={!input.trim()}>
+                    {t.send}
+                  </button>
+                )}
               </div>
             </div>
-          )
-        )}
-      </div>
 
-      <div className="composer">
-        <textarea
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={onKeyDown}
-          placeholder={t.ph}
-          rows={1}
-        />
-        {busy ? (
-          <button className="stop-btn" onClick={stop}>
-            ⏹ {t.stop}
-          </button>
-        ) : (
-          <button onClick={send} disabled={!input.trim()}>
-            {t.send}
-          </button>
-        )}
-      </div>
+            {activeTab.split && (
+              <div className="split-term">
+                <TerminalView termId={`${activeTab.id}:split`} cwd={activeTab.cwd} fontSize={fontSize} />
+              </div>
+            )}
+          </div>
         </>
       )}
+
+      <div className="statusbar">
+        <span>{claudeVersion ? `claude ${claudeVersion}` : t.cliNotFound}</span>
+        {activeTab?.kind === "chat" && activeTab.usage && (
+          <span>
+            ↑ {activeTab.usage.input.toLocaleString()} ↓ {activeTab.usage.output.toLocaleString()} {t.tokens}
+          </span>
+        )}
+        <span className="sb-spacer" />
+        {activeTab?.cwd && <span title={activeTab.cwd}>📁 {activeTab.cwd.split("/").pop()}</span>}
+      </div>
 
       {showSettings && (
         <div className="modal-backdrop" onClick={() => setShowSettings(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <h2>{t.settings}</h2>
+
             <label>{t.language}</label>
             <div className="lang-switch">
               <button className={lang === "en" ? "active" : ""} onClick={() => setLang("en")}>
@@ -576,6 +827,29 @@ function App() {
                 فارسی
               </button>
             </div>
+
+            <label style={{ marginTop: 14 }}>{t.theme}</label>
+            <div className="lang-switch">
+              <button className={theme === "dark" ? "active" : ""} onClick={() => setThemeState("dark")}>
+                {t.dark}
+              </button>
+              <button className={theme === "light" ? "active" : ""} onClick={() => setThemeState("light")}>
+                {t.light}
+              </button>
+            </div>
+
+            <label style={{ marginTop: 14 }}>
+              {t.fontSize}: {fontSize}px
+            </label>
+            <input
+              type="range"
+              min={11}
+              max={20}
+              value={fontSize}
+              onChange={(e) => setFontSizeState(Number(e.target.value))}
+              style={{ width: "100%" }}
+            />
+
             <p className="hint" style={{ marginTop: 14 }}>
               {t.cliHint}
             </p>
