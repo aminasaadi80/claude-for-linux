@@ -536,7 +536,7 @@ function App() {
     if (path) await invoke("write_text_file", { path, content: md }).catch(() => {});
   };
 
-  const copyMsg = (content: string) => navigator.clipboard.writeText(content).catch(() => {});
+  const copyMsg = (content: string) => invoke("clipboard_set", { text: content }).catch(() => {});
 
   // --- send / stop ---
   const send = async () => {

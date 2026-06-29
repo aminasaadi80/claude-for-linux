@@ -43,14 +43,13 @@ export default function TerminalView({
     term.open(hostRef.current!);
     fit.fit();
 
-    // clipboard (calls run inside user-gesture handlers, which webkit2gtk requires)
+    // clipboard via the Rust command (system tool — reliable on Wayland/webkit2gtk)
     const copySel = () => {
       const sel = term.getSelection();
-      if (sel) navigator.clipboard.writeText(sel).catch(() => {});
+      if (sel) invoke("clipboard_set", { text: sel }).catch(() => {});
     };
     const pasteClipboard = () =>
-      navigator.clipboard
-        .readText()
+      invoke<string>("clipboard_get")
         .then((txt) => {
           if (txt) invoke("pty_write", { termId, data: txt }).catch(() => {});
         })

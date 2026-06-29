@@ -478,6 +478,47 @@ fn write_text_file(path: String, content: String) -> Result<(), String> {
     std::fs::write(path, content).map_err(|e| e.to_string())
 }
 
+// Clipboard via the system tool (navigator.clipboard is unreliable in webkit2gtk).
+#[tauri::command]
+fn clipboard_set(text: String) -> Result<(), String> {
+    let tools: [(&str, &[&str]); 3] = [
+        ("wl-copy", &[]),
+        ("xclip", &["-selection", "clipboard"]),
+        ("xsel", &["--clipboard", "--input"]),
+    ];
+    for (bin, args) in tools {
+        if which(bin) {
+            if let Ok(mut child) = Command::new(bin).args(args).stdin(Stdio::piped()).spawn() {
+                if let Some(mut sin) = child.stdin.take() {
+                    let _ = sin.write_all(text.as_bytes());
+                } // sin dropped here → EOF
+                let _ = child.wait();
+                return Ok(());
+            }
+        }
+    }
+    Err("هیچ ابزار کلیپ‌بوردی پیدا نشد (wl-clipboard یا xclip را نصب کن)".into())
+}
+
+#[tauri::command]
+fn clipboard_get() -> Result<String, String> {
+    let tools: [(&str, &[&str]); 3] = [
+        ("wl-paste", &["--no-newline"]),
+        ("xclip", &["-selection", "clipboard", "-o"]),
+        ("xsel", &["--clipboard", "--output"]),
+    ];
+    for (bin, args) in tools {
+        if which(bin) {
+            if let Ok(o) = Command::new(bin).args(args).output() {
+                if o.status.success() {
+                    return Ok(String::from_utf8_lossy(&o.stdout).to_string());
+                }
+            }
+        }
+    }
+    Err("هیچ ابزار کلیپ‌بوردی پیدا نشد".into())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -499,7 +540,9 @@ pub fn run() {
             pty_write,
             pty_resize,
             pty_close,
-            write_text_file
+            write_text_file,
+            clipboard_set,
+            clipboard_get
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
