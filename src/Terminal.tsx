@@ -43,7 +43,11 @@ export default function TerminalView({
     term.open(hostRef.current!);
     fit.fit();
 
-    // copy / paste (terminal conventions: Ctrl+Shift+C / Ctrl+Shift+V, right-click paste)
+    // clipboard (calls run inside user-gesture handlers, which webkit2gtk requires)
+    const copySel = () => {
+      const sel = term.getSelection();
+      if (sel) navigator.clipboard.writeText(sel).catch(() => {});
+    };
     const pasteClipboard = () =>
       navigator.clipboard
         .readText()
@@ -55,8 +59,7 @@ export default function TerminalView({
     term.attachCustomKeyEventHandler((e) => {
       if (e.type !== "keydown") return true;
       if (e.ctrlKey && e.shiftKey && e.code === "KeyC") {
-        const sel = term.getSelection();
-        if (sel) navigator.clipboard.writeText(sel).catch(() => {});
+        copySel();
         return false;
       }
       if (e.ctrlKey && e.shiftKey && e.code === "KeyV") {
@@ -66,18 +69,29 @@ export default function TerminalView({
       return true;
     });
 
+    const host = hostRef.current;
+    // copy-on-select: release the mouse with a selection → it's copied automatically
+    const onMouseUp = () => {
+      if (term.hasSelection()) copySel();
+    };
     const onContext = (ev: MouseEvent) => {
       ev.preventDefault();
-      const sel = term.getSelection();
-      if (sel) {
-        // right-click with a selection copies it
-        navigator.clipboard.writeText(sel).catch(() => {});
+      if (term.hasSelection()) {
+        copySel();
         term.clearSelection();
       } else {
         pasteClipboard();
       }
     };
-    hostRef.current?.addEventListener("contextmenu", onContext);
+    const onAux = (ev: MouseEvent) => {
+      if (ev.button === 1) {
+        ev.preventDefault();
+        pasteClipboard(); // middle-click paste
+      }
+    };
+    host?.addEventListener("mouseup", onMouseUp);
+    host?.addEventListener("contextmenu", onContext);
+    host?.addEventListener("auxclick", onAux);
 
     let disposed = false;
     invoke("pty_open", {
@@ -109,11 +123,12 @@ export default function TerminalView({
     window.addEventListener("resize", doFit);
     setTimeout(() => term.focus(), 50);
 
-    const host = hostRef.current;
     return () => {
       disposed = true;
       window.removeEventListener("resize", doFit);
+      host?.removeEventListener("mouseup", onMouseUp);
       host?.removeEventListener("contextmenu", onContext);
+      host?.removeEventListener("auxclick", onAux);
       ro.disconnect();
       dataSub.dispose();
       unData.then((f) => f());
