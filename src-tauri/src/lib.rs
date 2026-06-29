@@ -5,12 +5,14 @@
 // already has (the same browser login you use in the terminal) — no API key.
 
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::Mutex;
 
+use base64::Engine;
+use portable_pty::{native_pty_system, Child as PtyChild, CommandBuilder, MasterPty, PtySize};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
 
@@ -349,10 +351,107 @@ fn which(bin: &str) -> bool {
         .unwrap_or(false)
 }
 
+// ----------------------------------------------------------------------------
+// Embedded terminal — a real interactive `claude` running inside a PTY, so the
+// full Claude Code TUI (slash commands, live permission prompts, plan mode) is
+// available. Rendered with xterm.js on the frontend.
+// ----------------------------------------------------------------------------
+
+struct PtySession {
+    master: Box<dyn MasterPty + Send>,
+    writer: Box<dyn Write + Send>,
+    child: Box<dyn PtyChild + Send + Sync>,
+}
+
+#[derive(Default)]
+struct PtyState {
+    sessions: Mutex<HashMap<String, PtySession>>,
+}
+
+#[derive(Serialize, Clone)]
+struct PtyData {
+    id: String,
+    data: String, // base64 of raw bytes
+}
+
+#[tauri::command]
+fn pty_open(
+    app: AppHandle,
+    state: State<PtyState>,
+    term_id: String,
+    cwd: Option<String>,
+    rows: u16,
+    cols: u16,
+) -> Result<(), String> {
+    let pty = native_pty_system();
+    let pair = pty
+        .openpty(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
+        .map_err(|e| e.to_string())?;
+
+    let mut cmd = CommandBuilder::new(claude_binary());
+    cmd.env("TERM", "xterm-256color");
+    if let Some(dir) = cwd.as_deref().filter(|s| !s.trim().is_empty()) {
+        cmd.cwd(dir);
+    } else if let Some(home) = dirs::home_dir() {
+        cmd.cwd(home);
+    }
+
+    let child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
+    drop(pair.slave); // parent doesn't need the slave handle
+
+    let mut reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
+    let writer = pair.master.take_writer().map_err(|e| e.to_string())?;
+
+    let app_r = app.clone();
+    let id_r = term_id.clone();
+    std::thread::spawn(move || {
+        let mut buf = [0u8; 8192];
+        loop {
+            match reader.read(&mut buf) {
+                Ok(0) | Err(_) => break,
+                Ok(n) => {
+                    let data = base64::engine::general_purpose::STANDARD.encode(&buf[..n]);
+                    let _ = app_r.emit("pty://data", PtyData { id: id_r.clone(), data });
+                }
+            }
+        }
+        let _ = app_r.emit("pty://exit", PtyData { id: id_r.clone(), data: String::new() });
+    });
+
+    state.sessions.lock().unwrap().insert(
+        term_id,
+        PtySession { master: pair.master, writer, child },
+    );
+    Ok(())
+}
+
+#[tauri::command]
+fn pty_write(state: State<PtyState>, term_id: String, data: String) {
+    if let Some(s) = state.sessions.lock().unwrap().get_mut(&term_id) {
+        let _ = s.writer.write_all(data.as_bytes());
+        let _ = s.writer.flush();
+    }
+}
+
+#[tauri::command]
+fn pty_resize(state: State<PtyState>, term_id: String, rows: u16, cols: u16) {
+    if let Some(s) = state.sessions.lock().unwrap().get(&term_id) {
+        let _ = s.master.resize(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 });
+    }
+}
+
+#[tauri::command]
+fn pty_close(state: State<PtyState>, term_id: String) {
+    if let Some(mut s) = state.sessions.lock().unwrap().remove(&term_id) {
+        let _ = s.child.kill();
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .manage(AppState::default())
+        .manage(PtyState::default())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
@@ -363,7 +462,11 @@ pub fn run() {
             claude_check,
             code_send,
             code_stop,
-            open_terminal
+            open_terminal,
+            pty_open,
+            pty_write,
+            pty_resize,
+            pty_close
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

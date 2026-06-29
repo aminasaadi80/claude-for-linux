@@ -465,6 +465,18 @@ body,
   cursor: not-allowed;
 }
 
+/* ---- embedded terminal ---- */
+.xterm-host {
+  flex: 1;
+  min-height: 0;
+  padding: 8px 10px;
+  background: #1a1714;
+  overflow: hidden;
+}
+.xterm-host .xterm {
+  height: 100%;
+}
+
 /* ---- drag & drop overlay ---- */
 .drop-overlay {
   position: fixed;

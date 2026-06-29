@@ -9,6 +9,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 import "highlight.js/styles/github-dark.css";
+import TerminalView from "./Terminal";
 import "./App.css";
 
 function quotePath(p: string): string {
@@ -29,6 +30,7 @@ interface Message {
 
 interface Tab {
   id: string;
+  kind: "chat" | "terminal";
   title: string;
   messages: Message[];
   cwd: string;
@@ -51,12 +53,14 @@ const STR = {
     brand: "Claude for Linux",
     clear: "Clear conversation",
     settings: "Settings",
-    newTab: "New tab",
-    tab: (n: number) => `Session ${n}`,
+    newTab: "New chat tab",
+    newTerm: "New terminal (full Claude Code)",
+    tab: (n: number) => `Chat ${n}`,
+    tabTerm: (n: number) => `Terminal ${n}`,
     folder: "Project folder:",
     folderPick: "Click to choose… (empty = current folder)",
-    choose: "📁 Choose",
-    terminal: "Open terminal here",
+    choose: "Choose folder",
+    terminal: "Open external terminal here",
     clearField: "Clear",
     perm: "Permissions",
     cliNotFound: "claude not found",
@@ -80,12 +84,14 @@ const STR = {
     brand: "Claude برای لینوکس",
     clear: "پاک کردن گفتگو",
     settings: "تنظیمات",
-    newTab: "تب جدید",
-    tab: (n: number) => `جلسه ${n}`,
+    newTab: "تب چت جدید",
+    newTerm: "ترمینال جدید (Claude Code کامل)",
+    tab: (n: number) => `چت ${n}`,
+    tabTerm: (n: number) => `ترمینال ${n}`,
     folder: "پوشه‌ی پروژه:",
     folderPick: "برای انتخاب کلیک کن… (خالی = پوشه‌ی فعلی)",
-    choose: "📁 انتخاب",
-    terminal: "باز کردن ترمینال در این پوشه",
+    choose: "انتخاب پوشه",
+    terminal: "باز کردن ترمینال بیرونی در این پوشه",
     clearField: "پاک کردن",
     perm: "دسترسی‌ها",
     cliNotFound: "claude یافت نشد",
@@ -124,12 +130,14 @@ interface ErrPayload {
 }
 
 let tabCounter = 1;
-function newTab(lang: Lang): Tab {
+function newTab(lang: Lang, kind: "chat" | "terminal" = "chat", cwd = ""): Tab {
+  const n = tabCounter++;
   return {
     id: crypto.randomUUID(),
-    title: STR[lang].tab(tabCounter++),
+    kind,
+    title: kind === "terminal" ? STR[lang].tabTerm(n) : STR[lang].tab(n),
     messages: [],
-    cwd: "",
+    cwd,
     permission: "default",
   };
 }
@@ -166,7 +174,7 @@ function App() {
         if (raw) {
           const data = JSON.parse(raw);
           if (Array.isArray(data.tabs) && data.tabs.length) {
-            setTabs(data.tabs.map((tb: Tab) => ({ ...tb, permission: tb.permission ?? "default" })));
+            setTabs(data.tabs.map((tb: Tab) => ({ ...tb, kind: tb.kind ?? "chat", permission: tb.permission ?? "default" })));
             if (data.activeId) setActiveId(data.activeId);
             if (typeof data.counter === "number") tabCounter = data.counter;
           }
@@ -182,12 +190,13 @@ function App() {
     if (!loaded.current) return;
     window.clearTimeout(saveTimer.current);
     saveTimer.current = window.setTimeout(() => {
-      const sanitized = tabs.map((tb) => ({
-        ...tb,
-        messages: tb.messages.map((m) => ({ ...m, streaming: false })),
-      }));
+      // terminal tabs hold a live process — don't persist them
+      const sanitized = tabs
+        .filter((tb) => tb.kind !== "terminal")
+        .map((tb) => ({ ...tb, messages: tb.messages.map((m) => ({ ...m, streaming: false })) }));
+      const stillActive = sanitized.some((tb) => tb.id === activeId) ? activeId : sanitized[0]?.id;
       invoke("save_session", {
-        data: JSON.stringify({ tabs: sanitized, activeId, counter: tabCounter }),
+        data: JSON.stringify({ tabs: sanitized, activeId: stillActive, counter: tabCounter }),
       }).catch(() => {});
     }, 400);
   }, [tabs, activeId]);
@@ -302,6 +311,11 @@ function App() {
   };
   const addTab = () => {
     const tb = newTab(lang);
+    setTabs((ts) => [...ts, tb]);
+    setActiveId(tb.id);
+  };
+  const addTerminalTab = () => {
+    const tb = newTab(lang, "terminal", activeTab?.cwd || "");
     setTabs((ts) => [...ts, tb]);
     setActiveId(tb.id);
   };
@@ -424,8 +438,15 @@ function App() {
         <button className="tab-add" onClick={addTab} title={t.newTab}>
           ＋
         </button>
+        <button className="tab-add" onClick={addTerminalTab} title={t.newTerm}>
+          🖥
+        </button>
       </div>
 
+      {activeTab?.kind === "terminal" ? (
+        <TerminalView termId={activeTab.id} cwd={activeTab.cwd} />
+      ) : (
+        <>
       <div className="cwd-bar">
         <label>{t.folder}</label>
         <input
@@ -437,7 +458,7 @@ function App() {
           style={{ cursor: "pointer" }}
         />
         <button className="browse-btn" onClick={pickFolder} title={t.choose}>
-          {t.choose}
+          📁
         </button>
         <button className="browse-btn" onClick={openTerminal} title={t.terminal}>
           🖥
@@ -508,6 +529,8 @@ function App() {
           </button>
         )}
       </div>
+        </>
+      )}
 
       {showSettings && (
         <div className="modal-backdrop" onClick={() => setShowSettings(false)}>
