@@ -37,5 +37,6 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "Claude for Linux ${{ github.ref_name }}"
-          releaseDraft: true
+          releaseBody: "Native Claude Code desktop app for Linux. Download the `.deb` (Debian/Ubuntu) or the portable `.AppImage` below."
+          releaseDraft: false
           args: --bundles deb appimage
