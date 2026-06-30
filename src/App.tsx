@@ -54,6 +54,7 @@ interface Tab {
 }
 interface Settings {
   lang: Lang;
+  proxy: string;
 }
 
 const PERMS: { id: Perm; en: string; fa: string }[] = [
@@ -97,6 +98,11 @@ const STR = {
     light: "Light",
     fontSize: "Font size",
     cancel: "Close",
+    proxy: "Proxy (optional)",
+    proxyHint:
+      "If api.anthropic.com is blocked, set your local proxy here; both chat and the terminal route the claude CLI through it.",
+    proxySave: "Save",
+    proxySaved: "Saved",
     about: "About",
     madeBy: "Made by",
     creator: "Amin Asaadi",
@@ -139,6 +145,11 @@ const STR = {
     light: "روشن",
     fontSize: "اندازه فونت",
     cancel: "بستن",
+    proxy: "پراکسی (اختیاری)",
+    proxyHint:
+      "اگر api.anthropic.com فیلتر است، آدرس پراکسی محلی‌ات را اینجا بگذار؛ هم چت و هم ترمینال، CLI claude را از همین پراکسی رد می‌کنند.",
+    proxySave: "ذخیره",
+    proxySaved: "ذخیره شد",
     about: "درباره",
     madeBy: "ساخته‌ی",
     creator: "امین اسعدی",
@@ -194,9 +205,10 @@ async function notify(title: string, body: string) {
 }
 
 function App() {
-  const [settings, setSettings] = useState<Settings>({ lang: "en" });
+  const [settings, setSettings] = useState<Settings>({ lang: "en", proxy: "" });
   const lang = settings.lang;
   const t = STR[lang];
+  const [proxyDraft, setProxyDraft] = useState("");
 
   const [theme, setThemeState] = useState<Theme>(
     () => (localStorage.getItem("theme") as Theme) || "dark"
@@ -247,7 +259,10 @@ function App() {
   }, [fontSize]);
 
   useEffect(() => {
-    invoke<Settings>("load_settings").then((s) => setSettings({ lang: (s.lang as Lang) || "en" }));
+    invoke<Settings>("load_settings").then((s) => {
+      setSettings({ lang: (s.lang as Lang) || "en", proxy: s.proxy || "" });
+      setProxyDraft(s.proxy || "");
+    });
     invoke<string | null>("claude_check").then(setClaudeVersion);
     isPermissionGranted().then((g) => {
       if (!g) requestPermission();
@@ -463,7 +478,12 @@ function App() {
 
   // --- settings/tabs ---
   const setLang = (l: Lang) => {
-    const next = { lang: l };
+    const next = { ...settings, lang: l };
+    setSettings(next);
+    invoke("save_settings", { settings: next });
+  };
+  const saveProxy = () => {
+    const next = { ...settings, proxy: proxyDraft.trim() };
     setSettings(next);
     invoke("save_settings", { settings: next });
   };
@@ -520,6 +540,19 @@ function App() {
       defaultPath: activeTab?.cwd || undefined,
     });
     if (typeof selected === "string") patchActive({ cwd: selected });
+  };
+  // pick the folder for a specific tab (used by terminal tabs — restarts the
+  // embedded claude in the chosen folder)
+  const pickFolderForTab = async (id: string) => {
+    const tab = tabs.find((x) => x.id === id);
+    const selected = await open({
+      directory: true,
+      multiple: false,
+      title: t.pickTitle,
+      defaultPath: tab?.cwd || undefined,
+    });
+    if (typeof selected === "string")
+      setTabs((ts) => ts.map((tb) => (tb.id === id ? { ...tb, cwd: selected } : tb)));
   };
   const openTerminal = () => invoke("open_terminal", { cwd: activeTab?.cwd || null }).catch(() => {});
 
@@ -678,7 +711,31 @@ function App() {
         .filter((tb) => tb.kind === "terminal")
         .map((tb) => (
           <div key={tb.id} className="term-wrap" style={{ display: tb.id === activeId ? "flex" : "none" }}>
+            <div className="cwd-bar">
+              <label>{t.folder}</label>
+              <input
+                type="text"
+                placeholder={t.folderPick}
+                value={tb.cwd || ""}
+                readOnly
+                onClick={() => pickFolderForTab(tb.id)}
+                style={{ cursor: "pointer" }}
+              />
+              <button className="browse-btn" onClick={() => pickFolderForTab(tb.id)} title={t.choose}>
+                📁
+              </button>
+              {tb.cwd && (
+                <button
+                  className="browse-btn"
+                  onClick={() => setTabs((ts) => ts.map((x) => (x.id === tb.id ? { ...x, cwd: "" } : x)))}
+                  title={t.clearField}
+                >
+                  ✕
+                </button>
+              )}
+            </div>
             <TerminalView
+              key={tb.cwd}
               termId={tb.id}
               cwd={tb.cwd}
               fontSize={fontSize}
@@ -849,6 +906,21 @@ function App() {
               onChange={(e) => setFontSizeState(Number(e.target.value))}
               style={{ width: "100%" }}
             />
+
+            <label style={{ marginTop: 14 }}>{t.proxy}</label>
+            <div className="proxy-row">
+              <input
+                type="text"
+                value={proxyDraft}
+                onChange={(e) => setProxyDraft(e.target.value)}
+                onBlur={saveProxy}
+                placeholder="127.0.0.1:8080"
+              />
+              <button onClick={saveProxy} disabled={proxyDraft.trim() === settings.proxy}>
+                {proxyDraft.trim() === settings.proxy ? t.proxySaved : t.proxySave}
+              </button>
+            </div>
+            <p className="hint">{t.proxyHint}</p>
 
             <p className="hint" style={{ marginTop: 14 }}>
               {t.cliHint}

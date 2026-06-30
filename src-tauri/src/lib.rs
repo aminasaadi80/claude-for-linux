@@ -31,6 +31,11 @@ struct AppState {
 struct Settings {
     #[serde(default = "default_lang")]
     lang: String,
+    /// Optional proxy for the `claude` CLI (e.g. "127.0.0.1:8080" or
+    /// "http://127.0.0.1:8080"). Injected as HTTPS_PROXY/HTTP_PROXY/ALL_PROXY
+    /// on every spawned claude process. Empty = no proxy.
+    #[serde(default)]
+    proxy: String,
 }
 
 fn default_lang() -> String {
@@ -39,8 +44,22 @@ fn default_lang() -> String {
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { lang: default_lang() }
+        Settings { lang: default_lang(), proxy: String::new() }
     }
+}
+
+/// The configured proxy, normalized to a full URL (adds http:// if no scheme).
+/// Returns None when no proxy is set.
+fn proxy_url() -> Option<String> {
+    let p = load_settings().proxy.trim().to_string();
+    if p.is_empty() {
+        return None;
+    }
+    Some(if p.contains("://") {
+        p
+    } else {
+        format!("http://{}", p)
+    })
 }
 
 fn config_file(name: &str) -> PathBuf {
@@ -194,6 +213,12 @@ fn code_send(
 
     cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
     cmd.process_group(0); // own group so we can cancel the whole tree
+
+    if let Some(px) = proxy_url() {
+        cmd.env("HTTPS_PROXY", &px);
+        cmd.env("HTTP_PROXY", &px);
+        cmd.env("ALL_PROXY", &px);
+    }
 
     if let Some(dir) = cwd.as_deref().filter(|s| !s.trim().is_empty()) {
         cmd.current_dir(dir);
@@ -407,6 +432,11 @@ fn pty_open(
 
     let mut cmd = CommandBuilder::new(claude_binary());
     cmd.env("TERM", "xterm-256color");
+    if let Some(px) = proxy_url() {
+        cmd.env("HTTPS_PROXY", &px);
+        cmd.env("HTTP_PROXY", &px);
+        cmd.env("ALL_PROXY", &px);
+    }
     // e.g. ["--continue"] for restored tabs, ["--resume"] for the session picker
     if let Some(args) = extra_args {
         for a in args {

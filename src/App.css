@@ -603,7 +603,7 @@ body,
   flex: 1;
   min-height: 0;
   /* extra bottom gap so Claude's input box / status line isn't clipped */
-  padding: 8px 10px 30px;
+  padding: 8px 10px 52px;
   background: #1a1714;
   overflow: hidden;
 }
@@ -668,6 +668,31 @@ body,
   font-size: 14px;
   direction: ltr;
   text-align: left;
+}
+.proxy-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+.proxy-row input {
+  flex: 1;
+}
+.proxy-row button {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 0 16px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.proxy-row button:disabled {
+  background: var(--panel);
+  color: var(--muted);
+  border: 1px solid var(--border);
+  cursor: default;
 }
 .hint {
   font-size: 12px;
