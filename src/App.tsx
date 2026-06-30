@@ -15,6 +15,8 @@ import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 import "highlight.js/styles/github-dark.css";
 import TerminalView from "./Terminal";
+import GitPanel from "./GitPanel";
+import RemotePanel, { type RemoteConfig } from "./RemotePanel";
 import "./App.css";
 
 function quotePath(p: string): string {
@@ -40,10 +42,13 @@ interface Usage {
   input: number;
   output: number;
 }
+type TabKind = "chat" | "terminal" | "git" | "remote";
 interface Tab {
   id: string;
-  kind: "chat" | "terminal";
+  kind: TabKind;
   title: string;
+  /** remote (SFTP/FTP) tabs: the connection draft for this tab */
+  remote?: RemoteConfig;
   messages: Message[];
   cwd: string;
   sessionId?: string;
@@ -51,6 +56,9 @@ interface Tab {
   usage?: Usage;
   split?: boolean;
   restored?: boolean;
+  /** terminal tabs: pass --dangerously-skip-permissions so Claude never stops
+   * to ask (equivalent to "yes" / "yes, always" on every prompt) */
+  skipPermissions?: boolean;
 }
 interface Settings {
   lang: Lang;
@@ -70,9 +78,16 @@ const STR = {
     settings: "Settings",
     newTab: "New chat tab",
     newTerm: "New terminal (full Claude Code)",
+    newGit: "New Git panel",
+    newRemote: "New SFTP / FTP connection",
     resume: "Resume a past session",
     tab: (n: number) => `Chat ${n}`,
     tabTerm: (n: number) => `Terminal ${n}`,
+    tabGit: (n: number) => `Git ${n}`,
+    tabRemote: (n: number) => `SFTP ${n}`,
+    closeConfirm: (title: string) => `Close "${title}"?`,
+    autoYes: "Auto-approve",
+    autoYesHint: "Answer yes to every permission prompt (--dangerously-skip-permissions). Restarts this terminal.",
     folder: "Project folder:",
     folderPick: "Click to choose… (empty = current folder)",
     choose: "Choose folder",
@@ -117,9 +132,16 @@ const STR = {
     settings: "تنظیمات",
     newTab: "تب چت جدید",
     newTerm: "ترمینال جدید (Claude Code کامل)",
+    newGit: "پنل Git جدید",
+    newRemote: "اتصال SFTP / FTP جدید",
     resume: "ادامه‌ی یک جلسه‌ی قبلی",
     tab: (n: number) => `چت ${n}`,
     tabTerm: (n: number) => `ترمینال ${n}`,
+    tabGit: (n: number) => `Git ${n}`,
+    tabRemote: (n: number) => `SFTP ${n}`,
+    closeConfirm: (title: string) => `«${title}» بسته شود؟`,
+    autoYes: "تأیید خودکار",
+    autoYesHint: "بله به همه‌ی درخواست‌های اجازه (--dangerously-skip-permissions). ترمینال را ری‌استارت می‌کند.",
     folder: "پوشه‌ی پروژه:",
     folderPick: "برای انتخاب کلیک کن… (خالی = پوشه‌ی فعلی)",
     choose: "انتخاب پوشه",
@@ -182,16 +204,29 @@ interface ErrPayload {
 }
 
 let tabCounter = 1;
-function newTab(lang: Lang, kind: "chat" | "terminal" = "chat", cwd = ""): Tab {
+function newTab(lang: Lang, kind: TabKind = "chat", cwd = ""): Tab {
   const n = tabCounter++;
+  const title =
+    kind === "terminal"
+      ? STR[lang].tabTerm(n)
+      : kind === "git"
+        ? STR[lang].tabGit(n)
+        : kind === "remote"
+          ? STR[lang].tabRemote(n)
+          : STR[lang].tab(n);
   return {
     id: crypto.randomUUID(),
     kind,
-    title: kind === "terminal" ? STR[lang].tabTerm(n) : STR[lang].tab(n),
+    title,
     messages: [],
     cwd,
     permission: "default",
+    ...(kind === "remote" ? { remote: newRemoteConfig() } : {}),
   };
+}
+
+function newRemoteConfig(): RemoteConfig {
+  return { protocol: "sftp", host: "", port: 22, username: "", password: "", key_path: "", passphrase: "" };
 }
 
 async function notify(title: string, body: string) {
@@ -218,6 +253,14 @@ function App() {
   );
 
   const [showSettings, setShowSettings] = useState(false);
+  // saved SFTP/FTP connections (persisted locally; may include passwords)
+  const [savedRemotes, setSavedRemotes] = useState<RemoteConfig[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem("savedRemotes") || "[]");
+    } catch {
+      return [];
+    }
+  });
   const [tabs, setTabs] = useState<Tab[]>(() => [newTab("en")]);
   const [activeId, setActiveId] = useState<string>(() => tabs[0].id);
   const [input, setInput] = useState("");
@@ -231,7 +274,7 @@ function App() {
   const tabReq = useRef<Record<string, string>>({});
   const tRef = useRef(t);
   tRef.current = t;
-  const activeRef = useRef<{ id: string; kind: "chat" | "terminal" }>({ id: "", kind: "chat" });
+  const activeRef = useRef<{ id: string; kind: TabKind }>({ id: "", kind: "chat" });
   const tabsRef = useRef<Tab[]>(tabs);
   tabsRef.current = tabs;
   const activeIdRef = useRef(activeId);
@@ -498,7 +541,31 @@ function App() {
     setTabs((ts) => [...ts, tb]);
     setActiveId(tb.id);
   };
+  const addGitTab = () => {
+    const tb = newTab(lang, "git", activeTab?.cwd || "");
+    setTabs((ts) => [...ts, tb]);
+    setActiveId(tb.id);
+  };
+  const addRemoteTab = () => {
+    const tb = newTab(lang, "remote");
+    setTabs((ts) => [...ts, tb]);
+    setActiveId(tb.id);
+  };
+  const setTabRemote = (id: string, remote: RemoteConfig) =>
+    setTabs((ts) => ts.map((tb) => (tb.id === id ? { ...tb, remote } : tb)));
+  const saveRemote = (cfg: RemoteConfig) => {
+    setSavedRemotes((prev) => {
+      // de-dupe by protocol/host/user; password is not stored in the chip key
+      const key = (c: RemoteConfig) => `${c.protocol}|${c.host}|${c.port}|${c.username}`;
+      const next = [cfg, ...prev.filter((c) => key(c) !== key(cfg))].slice(0, 20);
+      localStorage.setItem("savedRemotes", JSON.stringify(next));
+      return next;
+    });
+  };
   const closeTab = (id: string) => {
+    // confirm so an accidental click on ✕ doesn't drop a running tab
+    const tb = tabsRef.current.find((x) => x.id === id);
+    if (tb && !confirm(STR[lang].closeConfirm(tb.title))) return;
     setTabs((ts) => {
       let rest = ts.filter((x) => x.id !== id);
       if (rest.length === 0) rest = [newTab(lang)];
@@ -665,7 +732,15 @@ function App() {
             }}
             title={tb.title}
           >
-            <span className="tab-ico">{tb.kind === "terminal" ? "🖥" : "💬"}</span>
+            <span className="tab-ico">
+              {tb.kind === "terminal"
+                ? "🖥"
+                : tb.kind === "git"
+                  ? "⎇"
+                  : tb.kind === "remote"
+                    ? "🌐"
+                    : "💬"}
+            </span>
             {editingId === tb.id ? (
               <input
                 className="tab-edit"
@@ -704,6 +779,12 @@ function App() {
         <button className="tab-add" onClick={() => addTerminalTab(["--resume"])} title={t.resume}>
           ↺
         </button>
+        <button className="tab-add" onClick={addGitTab} title={t.newGit}>
+          ⎇
+        </button>
+        <button className="tab-add" onClick={addRemoteTab} title={t.newRemote}>
+          🌐
+        </button>
       </div>
 
       {/* terminal tabs stay mounted (hidden when inactive) so they keep running */}
@@ -733,13 +814,76 @@ function App() {
                   ✕
                 </button>
               )}
+              <button
+                className={`browse-btn auto-yes ${tb.skipPermissions ? "on" : ""}`}
+                title={t.autoYesHint}
+                onClick={() =>
+                  setTabs((ts) =>
+                    ts.map((x) => (x.id === tb.id ? { ...x, skipPermissions: !x.skipPermissions } : x))
+                  )
+                }
+              >
+                {tb.skipPermissions ? "✅" : "☑"} {t.autoYes}
+              </button>
             </div>
             <TerminalView
-              key={tb.cwd}
+              key={`${tb.cwd}|${tb.skipPermissions ? "y" : "n"}`}
               termId={tb.id}
               cwd={tb.cwd}
               fontSize={fontSize}
-              extraArgs={tb.restored ? ["--continue"] : (tb as Tab & { _extra?: string[] })._extra ?? []}
+              extraArgs={[
+                ...(tb.restored ? ["--continue"] : (tb as Tab & { _extra?: string[] })._extra ?? []),
+                ...(tb.skipPermissions ? ["--dangerously-skip-permissions"] : []),
+              ]}
+            />
+          </div>
+        ))}
+
+      {/* git tabs: folder bar + panel, scoped to the chosen project folder */}
+      {tabs
+        .filter((tb) => tb.kind === "git")
+        .map((tb) => (
+          <div key={tb.id} className="term-wrap" style={{ display: tb.id === activeId ? "flex" : "none" }}>
+            <div className="cwd-bar">
+              <label>{t.folder}</label>
+              <input
+                type="text"
+                placeholder={t.folderPick}
+                value={tb.cwd || ""}
+                readOnly
+                onClick={() => pickFolderForTab(tb.id)}
+                style={{ cursor: "pointer" }}
+              />
+              <button className="browse-btn" onClick={() => pickFolderForTab(tb.id)} title={t.choose}>
+                📁
+              </button>
+              {tb.cwd && (
+                <button
+                  className="browse-btn"
+                  onClick={() => setTabs((ts) => ts.map((x) => (x.id === tb.id ? { ...x, cwd: "" } : x)))}
+                  title={t.clearField}
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+            <GitPanel key={tb.cwd} cwd={tb.cwd} lang={lang} />
+          </div>
+        ))}
+
+      {/* remote (SFTP/FTP) tabs: stay mounted so the connection survives tab switches */}
+      {tabs
+        .filter((tb) => tb.kind === "remote")
+        .map((tb) => (
+          <div key={tb.id} className="term-wrap" style={{ display: tb.id === activeId ? "flex" : "none" }}>
+            <RemotePanel
+              connId={tb.id}
+              config={tb.remote ?? newRemoteConfig()}
+              saved={savedRemotes}
+              lang={lang}
+              onConfigChange={(c) => setTabRemote(tb.id, c)}
+              onSaveConnection={saveRemote}
+              onUseSaved={(c) => setTabRemote(tb.id, c)}
             />
           </div>
         ))}

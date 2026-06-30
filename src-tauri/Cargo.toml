@@ -1,6 +1,6 @@
 [package]
 name = "claude-linux"
-version = "0.2.3"
+version = "0.3.0"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
@@ -27,4 +27,8 @@ serde_json = "1"
 dirs = "5"
 portable-pty = "0.8"
 base64 = "0.22"
+# SFTP (over SSH) — vendored openssl so the build doesn't need system libssh2/openssl
+ssh2 = { version = "0.9", features = ["vendored-openssl"] }
+# FTP / FTPS
+suppaftp = { version = "6", features = ["native-tls"] }
 
