@@ -592,11 +592,18 @@ function App() {
   };
   const setTabRemote = (id: string, remote: RemoteConfig) =>
     setTabs((ts) => ts.map((tb) => (tb.id === id ? { ...tb, remote } : tb)));
+  const remoteKey = (c: RemoteConfig) => `${c.protocol}|${c.host}|${c.port}|${c.username}`;
   const saveRemote = (cfg: RemoteConfig) => {
     setSavedRemotes((prev) => {
       // de-dupe by protocol/host/user; password is not stored in the chip key
-      const key = (c: RemoteConfig) => `${c.protocol}|${c.host}|${c.port}|${c.username}`;
-      const next = [cfg, ...prev.filter((c) => key(c) !== key(cfg))].slice(0, 20);
+      const next = [cfg, ...prev.filter((c) => remoteKey(c) !== remoteKey(cfg))].slice(0, 20);
+      localStorage.setItem("savedRemotes", JSON.stringify(next));
+      return next;
+    });
+  };
+  const deleteRemote = (cfg: RemoteConfig) => {
+    setSavedRemotes((prev) => {
+      const next = prev.filter((c) => remoteKey(c) !== remoteKey(cfg));
       localStorage.setItem("savedRemotes", JSON.stringify(next));
       return next;
     });
@@ -608,11 +615,18 @@ function App() {
   };
   const setTabSsh = (id: string, ssh: SshConfig) =>
     setTabs((ts) => ts.map((tb) => (tb.id === id ? { ...tb, ssh } : tb)));
+  const sshKey = (c: SshConfig) => `${c.host}|${c.port}|${c.username}`;
   const saveSshServer = (cfg: SshConfig) => {
     if (!cfg.host.trim()) return;
     setSavedSsh((prev) => {
-      const key = (c: SshConfig) => `${c.host}|${c.port}|${c.username}`;
-      const next = [cfg, ...prev.filter((c) => key(c) !== key(cfg))].slice(0, 20);
+      const next = [cfg, ...prev.filter((c) => sshKey(c) !== sshKey(cfg))].slice(0, 20);
+      localStorage.setItem("savedSshServers", JSON.stringify(next));
+      return next;
+    });
+  };
+  const deleteSshServer = (cfg: SshConfig) => {
+    setSavedSsh((prev) => {
+      const next = prev.filter((c) => sshKey(c) !== sshKey(cfg));
       localStorage.setItem("savedSshServers", JSON.stringify(next));
       return next;
     });
@@ -957,6 +971,7 @@ function App() {
               lang={lang}
               onConfigChange={(c) => setTabRemote(tb.id, c)}
               onSaveConnection={saveRemote}
+              onDeleteConnection={deleteRemote}
               onUseSaved={(c) => setTabRemote(tb.id, c)}
             />
           </div>
@@ -975,6 +990,7 @@ function App() {
               fontSize={fontSize}
               onConfigChange={(c) => setTabSsh(tb.id, c)}
               onSaveConnection={saveSshServer}
+              onDeleteConnection={deleteSshServer}
               onUseSaved={(c) => setTabSsh(tb.id, c)}
             />
           </div>

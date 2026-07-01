@@ -1192,18 +1192,41 @@ body,
   flex-wrap: wrap;
   gap: 6px;
 }
+.rmt-chip-wrap {
+  display: inline-flex;
+  align-items: stretch;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.rmt-chip-wrap:hover {
+  border-color: var(--accent);
+}
 .rmt-chip {
   background: var(--panel);
-  border: 1px solid var(--border);
+  border: none;
   color: var(--text);
-  border-radius: 999px;
   padding: 4px 12px;
   font-size: 12px;
   cursor: pointer;
   direction: ltr;
 }
 .rmt-chip:hover {
-  border-color: var(--accent);
+  background: var(--bg-soft);
+}
+.rmt-chip-del {
+  background: var(--panel);
+  border: none;
+  border-inline-start: 1px solid var(--border);
+  color: var(--muted);
+  padding: 0 9px;
+  font-size: 11px;
+  cursor: pointer;
+  line-height: 1;
+}
+.rmt-chip-del:hover {
+  background: var(--err);
+  color: #fff;
 }
 .rmt-btn {
   background: var(--panel);

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import TerminalView, { type SshConfig } from "./Terminal";
+import { useConfirm } from "./usePrompt";
 
 type Lang = "en" | "fa";
 
@@ -28,6 +29,9 @@ const S = {
     saved: "Saved servers",
     fillHost: "Enter a host to connect.",
     connectedTo: "Connected to",
+    del: "Delete",
+    cancel: "Cancel",
+    delConfirm: (n: string) => `Delete saved server "${n}"?`,
   },
   fa: {
     name: "نام",
@@ -49,6 +53,9 @@ const S = {
     saved: "سرورهای ذخیره‌شده",
     fillHost: "برای اتصال یک هاست وارد کن.",
     connectedTo: "متصل به",
+    del: "حذف",
+    cancel: "انصراف",
+    delConfirm: (n: string) => `سرور ذخیره‌شده‌ی «${n}» حذف شود؟`,
   },
 };
 
@@ -67,6 +74,7 @@ export default function SshPanel({
   fontSize,
   onConfigChange,
   onSaveConnection,
+  onDeleteConnection,
   onUseSaved,
 }: {
   connId: string;
@@ -76,9 +84,11 @@ export default function SshPanel({
   fontSize?: number;
   onConfigChange: (c: SshConfig) => void;
   onSaveConnection: (c: SshConfig) => void;
+  onDeleteConnection: (c: SshConfig) => void;
   onUseSaved: (c: SshConfig) => void;
 }) {
   const t = S[lang];
+  const { confirm, node: confirmNode } = useConfirm();
   const [connected, setConnected] = useState(false);
   // bumped on every connect so the terminal remounts (fresh ssh session)
   const [nonce, setNonce] = useState(0);
@@ -117,9 +127,21 @@ export default function SshPanel({
               <label>{t.saved}</label>
               <div className="rmt-saved-list">
                 {saved.map((s, i) => (
-                  <button key={i} className="rmt-chip" onClick={() => onUseSaved(s)}>
-                    🔐 {label(s)}
-                  </button>
+                  <span key={i} className="rmt-chip-wrap">
+                    <button className="rmt-chip" onClick={() => onUseSaved(s)}>
+                      🔐 {label(s)}
+                    </button>
+                    <button
+                      className="rmt-chip-del"
+                      title={t.del}
+                      onClick={async () => {
+                        if (await confirm(t.delConfirm(label(s)), { ok: t.del, cancel: t.cancel, danger: true }))
+                          onDeleteConnection(s);
+                      }}
+                    >
+                      ✕
+                    </button>
+                  </span>
                 ))}
               </div>
             </div>
@@ -193,6 +215,7 @@ export default function SshPanel({
             </div>
           )}
         </div>
+        {confirmNode}
       </div>
     );
   }

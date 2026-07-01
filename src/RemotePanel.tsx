@@ -137,6 +137,7 @@ export default function RemotePanel({
   lang,
   onConfigChange,
   onSaveConnection,
+  onDeleteConnection,
   onUseSaved,
 }: {
   connId: string;
@@ -145,6 +146,7 @@ export default function RemotePanel({
   lang: Lang;
   onConfigChange: (c: RemoteConfig) => void;
   onSaveConnection: (c: RemoteConfig) => void;
+  onDeleteConnection: (c: RemoteConfig) => void;
   onUseSaved: (c: RemoteConfig) => void;
 }) {
   const t = S[lang];
@@ -298,10 +300,28 @@ export default function RemotePanel({
               <label>{t.saved}</label>
               <div className="rmt-saved-list">
                 {saved.map((s, i) => (
-                  <button key={i} className="rmt-chip" onClick={() => onUseSaved(s)}>
-                    {s.protocol}://{s.username ? `${s.username}@` : ""}
-                    {s.host}
-                  </button>
+                  <span key={i} className="rmt-chip-wrap">
+                    <button className="rmt-chip" onClick={() => onUseSaved(s)}>
+                      {s.protocol}://{s.username ? `${s.username}@` : ""}
+                      {s.host}
+                    </button>
+                    <button
+                      className="rmt-chip-del"
+                      title={t.del}
+                      onClick={async () => {
+                        if (
+                          await confirm(t.delConfirm(`${s.protocol}://${s.host}`), {
+                            ok: t.del,
+                            cancel: t.cancel,
+                            danger: true,
+                          })
+                        )
+                          onDeleteConnection(s);
+                      }}
+                    >
+                      ✕
+                    </button>
+                  </span>
                 ))}
               </div>
             </div>
