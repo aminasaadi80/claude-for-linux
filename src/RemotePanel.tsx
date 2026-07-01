@@ -13,6 +13,8 @@ export interface RemoteConfig {
   password?: string;
   key_path?: string;
   passphrase?: string;
+  /** optional per-connection proxy, independent of the app proxy */
+  proxy?: string;
 }
 
 interface RemoteFile {
@@ -33,6 +35,9 @@ const S = {
     key: "Private key",
     keyPick: "Choose key file…",
     passphrase: "Key passphrase",
+    proxy: "Proxy (optional)",
+    proxyPh: "socks5://127.0.0.1:1080 or 127.0.0.1:8080",
+    proxyHint: "Separate from the app proxy. Empty = direct connection.",
     connect: "Connect",
     disconnect: "Disconnect",
     connecting: "Connecting…",
@@ -68,6 +73,9 @@ const S = {
     key: "کلید خصوصی",
     keyPick: "انتخاب فایل کلید…",
     passphrase: "عبارت عبور کلید",
+    proxy: "پروکسی (اختیاری)",
+    proxyPh: "socks5://127.0.0.1:1080 یا 127.0.0.1:8080",
+    proxyHint: "جدا از پروکسی برنامه. خالی = اتصال مستقیم.",
     connect: "اتصال",
     disconnect: "قطع",
     connecting: "در حال اتصال…",
@@ -366,6 +374,14 @@ export default function RemotePanel({
               </div>
             </>
           )}
+
+          <div className="rmt-row">
+            <label>{t.proxy}</label>
+            <input value={config.proxy ?? ""} onChange={(e) => set({ proxy: e.target.value })} placeholder={t.proxyPh} />
+          </div>
+          <p className="hint" style={{ margin: "2px 0 0" }}>
+            {t.proxyHint}
+          </p>
 
           <div className="rmt-actions">
             <button className="rmt-btn primary" disabled={busy} onClick={connect}>

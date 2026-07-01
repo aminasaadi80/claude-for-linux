@@ -744,6 +744,46 @@ fn run_git(dir: &str, args: &[&str]) -> Result<String, String> {
     }
 }
 
+/// Build a `git` command for a network operation, routed through the given
+/// optional per-connection proxy (independent of the app proxy). Any ambient
+/// proxy inherited from the app's own environment is stripped, so an empty
+/// proxy means a truly direct connection — never the app proxy.
+fn git_net_command(dir: &str, proxy: &Option<String>) -> Command {
+    let mut cmd = Command::new("git");
+    cmd.current_dir(dir);
+    for k in ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"] {
+        cmd.env_remove(k);
+    }
+    if let Some(px) = proxy.as_deref().filter(|s| !s.trim().is_empty()) {
+        let url = if px.contains("://") { px.to_string() } else { format!("http://{}", px) };
+        // http(s) remotes
+        cmd.arg("-c").arg(format!("http.proxy={}", url));
+        cmd.arg("-c").arg(format!("https.proxy={}", url));
+        // ssh remotes (e.g. git@github.com) — proxy via ssh ProxyCommand
+        if let Some(pc) = ssh_proxy_command(px) {
+            cmd.arg("-c")
+                .arg(format!("core.sshCommand=ssh -o ProxyCommand='{}'", pc));
+        }
+    }
+    cmd
+}
+
+/// Run a git network command, returning the most informative output on success
+/// (push/pull report progress on stderr) or stderr as the error.
+fn run_git_net(dir: &str, proxy: &Option<String>, args: &[&str]) -> Result<String, String> {
+    let out = git_net_command(dir, proxy)
+        .args(args)
+        .output()
+        .map_err(|e| format!("git پیدا نشد: {}", e))?;
+    let so = String::from_utf8_lossy(&out.stdout);
+    let se = String::from_utf8_lossy(&out.stderr);
+    if out.status.success() {
+        Ok(if !so.trim().is_empty() { so.trim().to_string() } else { se.trim().to_string() })
+    } else {
+        Err(se.trim().to_string())
+    }
+}
+
 /// Run git for its stdout only, ignoring a non-zero exit (e.g. `git diff`,
 /// which returns 1 when differences exist).
 fn git_out(dir: &str, args: &[&str]) -> String {
@@ -886,12 +926,11 @@ fn git_commit(cwd: Option<String>, message: String) -> Result<String, String> {
 }
 
 #[tauri::command]
-fn git_push(cwd: Option<String>) -> Result<String, String> {
+fn git_push(cwd: Option<String>, proxy: Option<String>) -> Result<String, String> {
     let dir = git_cwd(cwd);
     // set upstream automatically on first push of a new branch
-    let out = Command::new("git")
-        .args(["push"])
-        .current_dir(&dir)
+    let out = git_net_command(&dir, &proxy)
+        .arg("push")
         .output()
         .map_err(|e| e.to_string())?;
     if out.status.success() {
@@ -903,19 +942,19 @@ fn git_push(cwd: Option<String>) -> Result<String, String> {
             .unwrap_or_default()
             .trim()
             .to_string();
-        return run_git(&dir, &["push", "--set-upstream", "origin", &branch]);
+        return run_git_net(&dir, &proxy, &["push", "--set-upstream", "origin", &branch]);
     }
     Err(err.trim().to_string())
 }
 
 #[tauri::command]
-fn git_pull(cwd: Option<String>) -> Result<String, String> {
-    run_git(&git_cwd(cwd), &["pull"])
+fn git_pull(cwd: Option<String>, proxy: Option<String>) -> Result<String, String> {
+    run_git_net(&git_cwd(cwd), &proxy, &["pull"])
 }
 
 #[tauri::command]
-fn git_fetch(cwd: Option<String>) -> Result<String, String> {
-    run_git(&git_cwd(cwd), &["fetch", "--all", "--prune"])
+fn git_fetch(cwd: Option<String>, proxy: Option<String>) -> Result<String, String> {
+    run_git_net(&git_cwd(cwd), &proxy, &["fetch", "--all", "--prune"])
 }
 
 #[tauri::command]
@@ -979,6 +1018,123 @@ fn git_log(cwd: Option<String>, limit: u32) -> Vec<GitCommit> {
 
 use std::net::TcpStream;
 
+// ---- Proxy dialing (shared by SFTP/FTP) ---------------------------------
+// Each connection may carry its OWN optional proxy, completely independent from
+// the app-wide claude proxy. We open the TCP connection to the target THROUGH
+// the proxy (HTTP CONNECT / SOCKS5 / SOCKS4a) and hand that socket to the
+// SFTP/FTP client. Empty proxy = direct connection (never the app proxy).
+
+/// Parse "socks5://127.0.0.1:1080" / "127.0.0.1:8080" → (scheme, host, port).
+fn parse_proxy(proxy: &str) -> Option<(String, String, u16)> {
+    let p = proxy.trim();
+    if p.is_empty() {
+        return None;
+    }
+    let (scheme, rest) = match p.split_once("://") {
+        Some((s, r)) => (s.to_lowercase(), r.to_string()),
+        None => ("http".to_string(), p.to_string()),
+    };
+    // drop any path and user:pass@ credentials, keep host:port
+    let rest = rest.split('/').next().unwrap_or(&rest);
+    let hostport = rest.rsplit('@').next().unwrap_or(rest);
+    let (host, port) = hostport.rsplit_once(':')?;
+    Some((scheme, host.to_string(), port.parse().ok()?))
+}
+
+/// Open a TCP connection to target_host:target_port through the given proxy.
+fn connect_via_proxy(proxy: &str, target_host: &str, target_port: u16) -> std::io::Result<TcpStream> {
+    let (scheme, phost, pport) = parse_proxy(proxy)
+        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidInput, "invalid proxy"))?;
+    let mut s = TcpStream::connect((phost.as_str(), pport))?;
+    match scheme.as_str() {
+        "socks5" | "socks5h" | "socks" => socks5_connect(&mut s, target_host, target_port)?,
+        "socks4" | "socks4a" => socks4_connect(&mut s, target_host, target_port)?,
+        _ => http_connect(&mut s, target_host, target_port)?, // http / https / connect
+    }
+    Ok(s)
+}
+
+fn io_err(msg: impl Into<String>) -> std::io::Error {
+    std::io::Error::new(std::io::ErrorKind::Other, msg.into())
+}
+
+fn http_connect(s: &mut TcpStream, host: &str, port: u16) -> std::io::Result<()> {
+    let req = format!(
+        "CONNECT {h}:{p} HTTP/1.1\r\nHost: {h}:{p}\r\nProxy-Connection: keep-alive\r\n\r\n",
+        h = host,
+        p = port
+    );
+    s.write_all(req.as_bytes())?;
+    let mut buf = Vec::new();
+    let mut byte = [0u8; 1];
+    loop {
+        if s.read(&mut byte)? == 0 {
+            break;
+        }
+        buf.push(byte[0]);
+        if buf.ends_with(b"\r\n\r\n") || buf.len() > 8192 {
+            break;
+        }
+    }
+    let resp = String::from_utf8_lossy(&buf);
+    let status = resp.lines().next().unwrap_or("");
+    if status.contains(" 200") {
+        Ok(())
+    } else {
+        Err(io_err(format!("proxy CONNECT refused: {}", status)))
+    }
+}
+
+fn socks5_connect(s: &mut TcpStream, host: &str, port: u16) -> std::io::Result<()> {
+    // greeting — one method: 0x00 (no auth)
+    s.write_all(&[0x05, 0x01, 0x00])?;
+    let mut reply = [0u8; 2];
+    s.read_exact(&mut reply)?;
+    if reply[0] != 0x05 || reply[1] != 0x00 {
+        return Err(io_err("socks5: no acceptable auth method"));
+    }
+    // CONNECT to domain:port
+    let mut req = vec![0x05, 0x01, 0x00, 0x03, host.len() as u8];
+    req.extend_from_slice(host.as_bytes());
+    req.extend_from_slice(&port.to_be_bytes());
+    s.write_all(&req)?;
+    let mut head = [0u8; 4];
+    s.read_exact(&mut head)?;
+    if head[1] != 0x00 {
+        return Err(io_err(format!("socks5: connect failed (code {})", head[1])));
+    }
+    let addr_len = match head[3] {
+        0x01 => 4,
+        0x04 => 16,
+        0x03 => {
+            let mut l = [0u8; 1];
+            s.read_exact(&mut l)?;
+            l[0] as usize
+        }
+        _ => return Err(io_err("socks5: bad address type")),
+    };
+    let mut rest = vec![0u8; addr_len + 2];
+    s.read_exact(&mut rest)?; // bound addr + port (ignored)
+    Ok(())
+}
+
+fn socks4_connect(s: &mut TcpStream, host: &str, port: u16) -> std::io::Result<()> {
+    // SOCKS4a: DSTIP 0.0.0.x (x != 0) signals "resolve the trailing hostname"
+    let mut req = vec![0x04, 0x01];
+    req.extend_from_slice(&port.to_be_bytes());
+    req.extend_from_slice(&[0, 0, 0, 1]);
+    req.push(0); // empty user id
+    req.extend_from_slice(host.as_bytes());
+    req.push(0);
+    s.write_all(&req)?;
+    let mut reply = [0u8; 8];
+    s.read_exact(&mut reply)?;
+    if reply[1] != 0x5a {
+        return Err(io_err(format!("socks4: request rejected (code {})", reply[1])));
+    }
+    Ok(())
+}
+
 #[derive(Deserialize)]
 struct RemoteCreds {
     /// "sftp" | "ftp" | "ftps"
@@ -990,6 +1146,10 @@ struct RemoteCreds {
     /// private key file for SFTP key auth
     key_path: Option<String>,
     passphrase: Option<String>,
+    /// optional per-connection proxy (independent of the app proxy). Empty =
+    /// direct connection.
+    #[serde(default)]
+    proxy: Option<String>,
 }
 
 #[derive(Serialize, Clone)]
@@ -1027,8 +1187,13 @@ fn remote_join(base: &str, name: &str) -> String {
 }
 
 fn open_sftp(c: &RemoteCreds) -> Result<Conn, String> {
-    let addr = format!("{}:{}", c.host, c.port);
-    let tcp = TcpStream::connect(&addr).map_err(|e| format!("اتصال ناموفق: {}", e))?;
+    // through the per-connection proxy if set, otherwise a direct socket
+    let tcp = match c.proxy.as_deref().filter(|s| !s.trim().is_empty()) {
+        Some(px) => connect_via_proxy(px, &c.host, c.port)
+            .map_err(|e| format!("اتصال از طریق پروکسی ناموفق: {}", e))?,
+        None => TcpStream::connect(format!("{}:{}", c.host, c.port))
+            .map_err(|e| format!("اتصال ناموفق: {}", e))?,
+    };
     let mut sess = ssh2::Session::new().map_err(|e| e.to_string())?;
     sess.set_tcp_stream(tcp);
     sess.handshake().map_err(|e| format!("handshake ناموفق: {}", e))?;
@@ -1067,9 +1232,31 @@ fn open_sftp(c: &RemoteCreds) -> Result<Conn, String> {
 fn open_ftp(c: &RemoteCreds, secure: bool) -> Result<Conn, String> {
     let addr = format!("{}:{}", c.host, c.port);
     let pw = c.password.clone().unwrap_or_default();
+    let proxy = c.proxy.clone().filter(|s| !s.trim().is_empty());
+
     if secure {
-        let stream = suppaftp::NativeTlsFtpStream::connect(&addr)
-            .map_err(|e| format!("اتصال ناموفق: {}", e))?;
+        // control connection: through the proxy tunnel if set
+        let stream = match &proxy {
+            Some(px) => {
+                let tcp = connect_via_proxy(px, &c.host, c.port)
+                    .map_err(|e| format!("اتصال از طریق پروکسی ناموفق: {}", e))?;
+                suppaftp::NativeTlsFtpStream::connect_with_stream(tcp)
+                    .map_err(|e| format!("اتصال ناموفق: {}", e))?
+            }
+            None => suppaftp::NativeTlsFtpStream::connect(&addr)
+                .map_err(|e| format!("اتصال ناموفق: {}", e))?,
+        };
+        // passive data connections also go through the proxy
+        let stream = match &proxy {
+            Some(px) => {
+                let px = px.clone();
+                stream.passive_stream_builder(move |a| {
+                    connect_via_proxy(&px, &a.ip().to_string(), a.port())
+                        .map_err(suppaftp::FtpError::ConnectionError)
+                })
+            }
+            None => stream,
+        };
         // many FTPS servers use self-signed certs — be lenient
         let ctx = suppaftp::native_tls::TlsConnector::builder()
             .danger_accept_invalid_certs(true)
@@ -1082,8 +1269,26 @@ fn open_ftp(c: &RemoteCreds, secure: bool) -> Result<Conn, String> {
         ftp.login(&c.username, &pw).map_err(|e| format!("ورود ناموفق: {}", e))?;
         Ok(Conn::Ftps(ftp))
     } else {
-        let mut ftp = suppaftp::FtpStream::connect(&addr)
-            .map_err(|e| format!("اتصال ناموفق: {}", e))?;
+        let stream = match &proxy {
+            Some(px) => {
+                let tcp = connect_via_proxy(px, &c.host, c.port)
+                    .map_err(|e| format!("اتصال از طریق پروکسی ناموفق: {}", e))?;
+                suppaftp::FtpStream::connect_with_stream(tcp)
+                    .map_err(|e| format!("اتصال ناموفق: {}", e))?
+            }
+            None => suppaftp::FtpStream::connect(&addr)
+                .map_err(|e| format!("اتصال ناموفق: {}", e))?,
+        };
+        let mut ftp = match &proxy {
+            Some(px) => {
+                let px = px.clone();
+                stream.passive_stream_builder(move |a| {
+                    connect_via_proxy(&px, &a.ip().to_string(), a.port())
+                        .map_err(suppaftp::FtpError::ConnectionError)
+                })
+            }
+            None => stream,
+        };
         ftp.login(&c.username, &pw).map_err(|e| format!("ورود ناموفق: {}", e))?;
         Ok(Conn::Ftp(ftp))
     }

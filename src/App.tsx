@@ -53,6 +53,8 @@ interface Tab {
   remote?: RemoteConfig;
   /** ssh tabs: the connection draft for this tab */
   ssh?: SshConfig;
+  /** git tabs: optional per-tab proxy for network ops (independent of app proxy) */
+  gitProxy?: string;
   messages: Message[];
   cwd: string;
   sessionId?: string;
@@ -85,6 +87,8 @@ const STR = {
     newGit: "New Git panel",
     newRemote: "New SFTP / FTP connection",
     newSsh: "New SSH connection",
+    gitProxy: "Proxy (optional)",
+    gitProxyHint: "Optional proxy for fetch/pull/push — separate from the app proxy. Empty = direct.",
     resume: "Resume a past session",
     tab: (n: number) => `Chat ${n}`,
     tabTerm: (n: number) => `Terminal ${n}`,
@@ -141,6 +145,8 @@ const STR = {
     newGit: "پنل Git جدید",
     newRemote: "اتصال SFTP / FTP جدید",
     newSsh: "اتصال SSH جدید",
+    gitProxy: "پروکسی (اختیاری)",
+    gitProxyHint: "پروکسی اختیاری برای fetch/pull/push — جدا از پروکسی برنامه. خالی = مستقیم.",
     resume: "ادامه‌ی یک جلسه‌ی قبلی",
     tab: (n: number) => `چت ${n}`,
     tabTerm: (n: number) => `ترمینال ${n}`,
@@ -237,7 +243,7 @@ function newTab(lang: Lang, kind: TabKind = "chat", cwd = ""): Tab {
 }
 
 function newRemoteConfig(): RemoteConfig {
-  return { protocol: "sftp", host: "", port: 22, username: "", password: "", key_path: "", passphrase: "" };
+  return { protocol: "sftp", host: "", port: 22, username: "", password: "", key_path: "", passphrase: "", proxy: "" };
 }
 
 function newSshConfig(): SshConfig {
@@ -921,8 +927,21 @@ function App() {
                   ✕
                 </button>
               )}
+              <label className="git-proxy-l" title={t.gitProxyHint}>
+                🌐
+              </label>
+              <input
+                className="git-proxy-in"
+                type="text"
+                placeholder={t.gitProxy}
+                title={t.gitProxyHint}
+                value={tb.gitProxy ?? ""}
+                onChange={(e) =>
+                  setTabs((ts) => ts.map((x) => (x.id === tb.id ? { ...x, gitProxy: e.target.value } : x)))
+                }
+              />
             </div>
-            <GitPanel key={tb.cwd} cwd={tb.cwd} lang={lang} />
+            <GitPanel key={tb.cwd} cwd={tb.cwd} lang={lang} proxy={tb.gitProxy || ""} />
           </div>
         ))}
 

@@ -99,7 +99,7 @@ function statusLabel(f: GitFile): string {
   return c || "•";
 }
 
-export default function GitPanel({ cwd, lang }: { cwd: string; lang: Lang }) {
+export default function GitPanel({ cwd, lang, proxy }: { cwd: string; lang: Lang; proxy?: string }) {
   const t = S[lang];
   const [status, setStatus] = useState<GitStatus | null>(null);
   const [branches, setBranches] = useState<GitBranches | null>(null);
@@ -278,13 +278,13 @@ export default function GitPanel({ cwd, lang }: { cwd: string; lang: Lang }) {
           </span>
         )}
         <span className="git-spacer" />
-        <button className="git-btn" disabled={busy} onClick={() => run(() => invoke("git_fetch", { cwd }))}>
+        <button className="git-btn" disabled={busy} onClick={() => run(() => invoke("git_fetch", { cwd, proxy }))}>
           ⟳ {t.fetch}
         </button>
-        <button className="git-btn" disabled={busy} onClick={() => run(() => invoke("git_pull", { cwd }))}>
+        <button className="git-btn" disabled={busy} onClick={() => run(() => invoke("git_pull", { cwd, proxy }))}>
           ↓ {t.pull}
         </button>
-        <button className="git-btn" disabled={busy} onClick={() => run(() => invoke("git_push", { cwd }), t.done)}>
+        <button className="git-btn" disabled={busy} onClick={() => run(() => invoke("git_push", { cwd, proxy }), t.done)}>
           ↑ {t.push}
         </button>
         <button className="git-btn" disabled={busy} onClick={refresh} title={t.refresh}>
@@ -344,7 +344,7 @@ export default function GitPanel({ cwd, lang }: { cwd: string; lang: Lang }) {
                   run(async () => {
                     await invoke("git_commit", { cwd, message: commitMsg });
                     setCommitMsg("");
-                    await invoke("git_push", { cwd });
+                    await invoke("git_push", { cwd, proxy });
                   }, t.done)
                 }
               >
