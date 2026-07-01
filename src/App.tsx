@@ -17,6 +17,7 @@ import "highlight.js/styles/github-dark.css";
 import TerminalView from "./Terminal";
 import GitPanel from "./GitPanel";
 import RemotePanel, { type RemoteConfig } from "./RemotePanel";
+import SshPanel, { type SshConfig } from "./SshPanel";
 import { useConfirm } from "./usePrompt";
 import "./App.css";
 
@@ -43,13 +44,15 @@ interface Usage {
   input: number;
   output: number;
 }
-type TabKind = "chat" | "terminal" | "git" | "remote";
+type TabKind = "chat" | "terminal" | "git" | "remote" | "ssh";
 interface Tab {
   id: string;
   kind: TabKind;
   title: string;
   /** remote (SFTP/FTP) tabs: the connection draft for this tab */
   remote?: RemoteConfig;
+  /** ssh tabs: the connection draft for this tab */
+  ssh?: SshConfig;
   messages: Message[];
   cwd: string;
   sessionId?: string;
@@ -81,11 +84,13 @@ const STR = {
     newTerm: "New terminal (full Claude Code)",
     newGit: "New Git panel",
     newRemote: "New SFTP / FTP connection",
+    newSsh: "New SSH connection",
     resume: "Resume a past session",
     tab: (n: number) => `Chat ${n}`,
     tabTerm: (n: number) => `Terminal ${n}`,
     tabGit: (n: number) => `Git ${n}`,
     tabRemote: (n: number) => `SFTP ${n}`,
+    tabSsh: (n: number) => `SSH ${n}`,
     closeConfirm: (title: string) => `Close "${title}"?`,
     autoYes: "Auto-approve",
     autoYesHint: "Answer yes to every permission prompt (--dangerously-skip-permissions). Restarts this terminal.",
@@ -135,11 +140,13 @@ const STR = {
     newTerm: "ترمینال جدید (Claude Code کامل)",
     newGit: "پنل Git جدید",
     newRemote: "اتصال SFTP / FTP جدید",
+    newSsh: "اتصال SSH جدید",
     resume: "ادامه‌ی یک جلسه‌ی قبلی",
     tab: (n: number) => `چت ${n}`,
     tabTerm: (n: number) => `ترمینال ${n}`,
     tabGit: (n: number) => `Git ${n}`,
     tabRemote: (n: number) => `SFTP ${n}`,
+    tabSsh: (n: number) => `SSH ${n}`,
     closeConfirm: (title: string) => `«${title}» بسته شود؟`,
     autoYes: "تأیید خودکار",
     autoYesHint: "بله به همه‌ی درخواست‌های اجازه (--dangerously-skip-permissions). ترمینال را ری‌استارت می‌کند.",
@@ -214,7 +221,9 @@ function newTab(lang: Lang, kind: TabKind = "chat", cwd = ""): Tab {
         ? STR[lang].tabGit(n)
         : kind === "remote"
           ? STR[lang].tabRemote(n)
-          : STR[lang].tab(n);
+          : kind === "ssh"
+            ? STR[lang].tabSsh(n)
+            : STR[lang].tab(n);
   return {
     id: crypto.randomUUID(),
     kind,
@@ -223,11 +232,16 @@ function newTab(lang: Lang, kind: TabKind = "chat", cwd = ""): Tab {
     cwd,
     permission: "default",
     ...(kind === "remote" ? { remote: newRemoteConfig() } : {}),
+    ...(kind === "ssh" ? { ssh: newSshConfig() } : {}),
   };
 }
 
 function newRemoteConfig(): RemoteConfig {
   return { protocol: "sftp", host: "", port: 22, username: "", password: "", key_path: "", passphrase: "" };
+}
+
+function newSshConfig(): SshConfig {
+  return { name: "", host: "", port: 22, username: "", password: "", key_path: "", proxy: "" };
 }
 
 async function notify(title: string, body: string) {
@@ -258,6 +272,14 @@ function App() {
   const [savedRemotes, setSavedRemotes] = useState<RemoteConfig[]>(() => {
     try {
       return JSON.parse(localStorage.getItem("savedRemotes") || "[]");
+    } catch {
+      return [];
+    }
+  });
+  // saved SSH servers (persisted locally; may include passwords)
+  const [savedSsh, setSavedSsh] = useState<SshConfig[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem("savedSshServers") || "[]");
     } catch {
       return [];
     }
@@ -573,6 +595,22 @@ function App() {
       return next;
     });
   };
+  const addSshTab = () => {
+    const tb = newTab(lang, "ssh");
+    setTabs((ts) => [...ts, tb]);
+    setActiveId(tb.id);
+  };
+  const setTabSsh = (id: string, ssh: SshConfig) =>
+    setTabs((ts) => ts.map((tb) => (tb.id === id ? { ...tb, ssh } : tb)));
+  const saveSshServer = (cfg: SshConfig) => {
+    if (!cfg.host.trim()) return;
+    setSavedSsh((prev) => {
+      const key = (c: SshConfig) => `${c.host}|${c.port}|${c.username}`;
+      const next = [cfg, ...prev.filter((c) => key(c) !== key(cfg))].slice(0, 20);
+      localStorage.setItem("savedSshServers", JSON.stringify(next));
+      return next;
+    });
+  };
   const closeTab = async (id: string) => {
     // confirm so an accidental click on ✕ doesn't drop a running tab (themed
     // modal — window.confirm() is ignored under WebKitGTK)
@@ -751,7 +789,9 @@ function App() {
                   ? "⎇"
                   : tb.kind === "remote"
                     ? "🌐"
-                    : "💬"}
+                    : tb.kind === "ssh"
+                      ? "🔐"
+                      : "💬"}
             </span>
             {editingId === tb.id ? (
               <input
@@ -782,20 +822,23 @@ function App() {
             )}
           </div>
         ))}
-        <button className="tab-add" onClick={addTab} title={t.newTab}>
-          ＋
-        </button>
         <button className="tab-add" onClick={() => addTerminalTab()} title={t.newTerm}>
           🖥
         </button>
         <button className="tab-add" onClick={() => addTerminalTab(["--resume"])} title={t.resume}>
           ↺
         </button>
+        <button className="tab-add" onClick={addTab} title={t.newTab}>
+          💬
+        </button>
         <button className="tab-add" onClick={addGitTab} title={t.newGit}>
           ⎇
         </button>
         <button className="tab-add" onClick={addRemoteTab} title={t.newRemote}>
           🌐
+        </button>
+        <button className="tab-add" onClick={addSshTab} title={t.newSsh}>
+          🔐
         </button>
       </div>
 
@@ -896,6 +939,24 @@ function App() {
               onConfigChange={(c) => setTabRemote(tb.id, c)}
               onSaveConnection={saveRemote}
               onUseSaved={(c) => setTabRemote(tb.id, c)}
+            />
+          </div>
+        ))}
+
+      {/* ssh tabs: stay mounted so the shell session survives tab switches */}
+      {tabs
+        .filter((tb) => tb.kind === "ssh")
+        .map((tb) => (
+          <div key={tb.id} className="term-wrap" style={{ display: tb.id === activeId ? "flex" : "none" }}>
+            <SshPanel
+              connId={tb.id}
+              config={tb.ssh ?? newSshConfig()}
+              saved={savedSsh}
+              lang={lang}
+              fontSize={fontSize}
+              onConfigChange={(c) => setTabSsh(tb.id, c)}
+              onSaveConnection={saveSshServer}
+              onUseSaved={(c) => setTabSsh(tb.id, c)}
             />
           </div>
         ))}

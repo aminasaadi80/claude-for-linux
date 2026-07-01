@@ -12,17 +12,35 @@ function b64ToBytes(b64: string): Uint8Array {
   return arr;
 }
 
-// A real interactive `claude` running in a PTY, rendered with xterm.js.
+export interface SshConfig {
+  name?: string;
+  host: string;
+  port: number;
+  username: string;
+  password?: string;
+  key_path?: string;
+  /** optional per-connection proxy, independent of the app proxy */
+  proxy?: string;
+}
+
+// A real interactive PTY rendered with xterm.js. By default it runs `claude`;
+// when `ssh` is given it runs an interactive `ssh` login instead.
 export default function TerminalView({
   termId,
   cwd,
   extraArgs,
   fontSize,
+  ssh,
+  flush,
 }: {
   termId: string;
   cwd: string;
   extraArgs?: string[];
   fontSize?: number;
+  /** when set, open an SSH session instead of the claude PTY */
+  ssh?: SshConfig;
+  /** trim the extra bottom padding (used for plain shells / ssh) */
+  flush?: boolean;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
 
@@ -93,19 +111,33 @@ export default function TerminalView({
     host?.addEventListener("auxclick", onAux);
 
     let disposed = false;
-    invoke("pty_open", {
-      termId,
-      cwd: cwd || null,
-      rows: term.rows,
-      cols: term.cols,
-      extraArgs: extraArgs ?? [],
-    }).catch(() => {});
+    if (ssh) {
+      invoke("ssh_open", {
+        termId,
+        creds: ssh,
+        rows: term.rows,
+        cols: term.cols,
+      }).catch((e) => term.write(`\r\n\x1b[31m${String(e)}\x1b[0m\r\n`));
+    } else {
+      invoke("pty_open", {
+        termId,
+        cwd: cwd || null,
+        rows: term.rows,
+        cols: term.cols,
+        extraArgs: extraArgs ?? [],
+      }).catch(() => {});
+    }
 
     const unData = listen("pty://data", (e: { payload: { id: string; data: string } }) => {
       if (e.payload.id === termId && !disposed) term.write(b64ToBytes(e.payload.data));
     });
     const unExit = listen("pty://exit", (e: { payload: { id: string } }) => {
-      if (e.payload.id === termId && !disposed) term.write("\r\n\x1b[33m[claude exited — close this tab]\x1b[0m\r\n");
+      if (e.payload.id === termId && !disposed)
+        term.write(
+          ssh
+            ? "\r\n\x1b[33m[ssh session ended — press Disconnect or reconnect]\x1b[0m\r\n"
+            : "\r\n\x1b[33m[claude exited — close this tab]\x1b[0m\r\n"
+        );
     });
     const dataSub = term.onData((d) => invoke("pty_write", { termId, data: d }).catch(() => {}));
 
@@ -137,5 +169,5 @@ export default function TerminalView({
     };
   }, [termId]);
 
-  return <div className="xterm-host" ref={hostRef} />;
+  return <div className={`xterm-host${flush ? " flush" : ""}`} ref={hostRef} />;
 }

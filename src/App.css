@@ -200,6 +200,13 @@ body,
 .tab-chat {
   border-inline-start: 3px solid var(--accent);
 }
+.tab-ssh {
+  border-inline-start: 3px solid #b48ead;
+}
+.tab-ssh.active {
+  border-color: #b48ead;
+  background: #221d24;
+}
 .tab-ico {
   font-size: 12px;
   opacity: 0.85;
@@ -615,6 +622,15 @@ body,
 }
 .xterm-host .xterm {
   height: 100%;
+}
+/* plain shells / ssh don't need the big bottom gap claude's input box needs */
+.xterm-host.flush {
+  padding-bottom: 12px;
+}
+/* ssh: file-browser-style top bar + terminal filling the rest */
+.ssh-live .xterm-host {
+  flex: 1;
+  min-height: 0;
 }
 
 /* ---- drag & drop overlay ---- */

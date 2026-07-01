@@ -480,6 +480,137 @@ fn pty_open(
     Ok(())
 }
 
+// ----------------------------------------------------------------------------
+// SSH terminal — a real interactive `ssh` login running inside a PTY (same
+// rendering path as the embedded claude terminal). Each connection can carry its
+// OWN optional proxy (via SSH ProxyCommand), completely independent from the
+// app-wide `claude` proxy configured in Settings.
+// ----------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+struct SshCreds {
+    host: String,
+    port: u16,
+    username: String,
+    /// optional password (used via `sshpass` when available; otherwise ssh will
+    /// prompt for it interactively inside the terminal)
+    password: Option<String>,
+    /// optional private key file
+    key_path: Option<String>,
+    /// optional per-connection proxy, e.g. "127.0.0.1:8080",
+    /// "http://127.0.0.1:8080" or "socks5://127.0.0.1:1080". Separate from the
+    /// app proxy — routed through SSH's ProxyCommand (needs `nc`/netcat).
+    proxy: Option<String>,
+}
+
+/// Build an SSH ProxyCommand for the given proxy string using OpenBSD netcat.
+/// Supports http(s)/connect and socks4/socks5. Returns None for empty input.
+fn ssh_proxy_command(proxy: &str) -> Option<String> {
+    let p = proxy.trim();
+    if p.is_empty() {
+        return None;
+    }
+    let (scheme, hostport) = match p.split_once("://") {
+        Some((s, hp)) => (s.to_lowercase(), hp.to_string()),
+        None => ("http".to_string(), p.to_string()),
+    };
+    let x = match scheme.as_str() {
+        "socks5" | "socks5h" | "socks" => "5",
+        "socks4" | "socks4a" => "4",
+        _ => "connect", // http / https / anything else → HTTP CONNECT
+    };
+    // %h/%p are expanded by ssh to the target host/port
+    Some(format!("nc -X {} -x {} %h %p", x, hostport))
+}
+
+#[tauri::command]
+fn ssh_open(
+    app: AppHandle,
+    state: State<PtyState>,
+    term_id: String,
+    creds: SshCreds,
+    rows: u16,
+    cols: u16,
+) -> Result<(), String> {
+    let pty = native_pty_system();
+    let pair = pty
+        .openpty(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
+        .map_err(|e| e.to_string())?;
+
+    // Use sshpass when a password is given and the tool exists; otherwise ssh
+    // asks for the password interactively (works fine inside the PTY).
+    let use_sshpass = creds
+        .password
+        .as_deref()
+        .map(|s| !s.is_empty())
+        .unwrap_or(false)
+        && which("sshpass");
+
+    let mut cmd = if use_sshpass {
+        let mut c = CommandBuilder::new("sshpass");
+        c.arg("-p");
+        c.arg(creds.password.as_deref().unwrap_or(""));
+        c.arg("ssh");
+        c
+    } else {
+        CommandBuilder::new("ssh")
+    };
+
+    cmd.env("TERM", "xterm-256color");
+    // NOTE: intentionally NOT injecting the app proxy here — SSH proxying is
+    // per-connection and handled below via ProxyCommand.
+    cmd.arg("-tt"); // force a PTY on the remote even through ProxyCommand
+    cmd.arg("-p");
+    cmd.arg(creds.port.to_string());
+    cmd.arg("-o");
+    cmd.arg("StrictHostKeyChecking=accept-new"); // don't block on the yes/no prompt
+
+    if let Some(key) = creds.key_path.as_deref().filter(|s| !s.trim().is_empty()) {
+        cmd.arg("-i");
+        cmd.arg(key);
+    }
+    if let Some(px) = creds.proxy.as_deref().filter(|s| !s.trim().is_empty()) {
+        if let Some(pc) = ssh_proxy_command(px) {
+            cmd.arg("-o");
+            cmd.arg(format!("ProxyCommand={}", pc));
+        }
+    }
+    cmd.arg(format!("{}@{}", creds.username, creds.host));
+
+    if let Some(home) = dirs::home_dir() {
+        cmd.cwd(home); // so ssh can find ~/.ssh, keys, config
+    }
+
+    let child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
+    drop(pair.slave);
+
+    let mut reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
+    let writer = pair.master.take_writer().map_err(|e| e.to_string())?;
+
+    let app_r = app.clone();
+    let id_r = term_id.clone();
+    std::thread::spawn(move || {
+        let mut buf = [0u8; 8192];
+        loop {
+            match reader.read(&mut buf) {
+                Ok(0) | Err(_) => break,
+                Ok(n) => {
+                    let data = base64::engine::general_purpose::STANDARD.encode(&buf[..n]);
+                    let _ = app_r.emit("pty://data", PtyData { id: id_r.clone(), data });
+                }
+            }
+        }
+        let _ = app_r.emit("pty://exit", PtyData { id: id_r.clone(), data: String::new() });
+    });
+
+    state
+        .sessions
+        .lock()
+        .unwrap()
+        .insert(term_id, PtySession { master: pair.master, writer, child });
+    Ok(())
+}
+
 #[tauri::command]
 fn pty_write(state: State<PtyState>, term_id: String, data: String) {
     if let Some(s) = state.sessions.lock().unwrap().get_mut(&term_id) {
@@ -1179,6 +1310,7 @@ pub fn run() {
             code_stop,
             open_terminal,
             pty_open,
+            ssh_open,
             pty_write,
             pty_resize,
             pty_close,
