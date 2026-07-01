@@ -169,6 +169,8 @@ body,
   background: var(--bg);
   border-bottom: 1px solid var(--border);
   overflow-x: auto;
+  /* don't select tab titles while dragging to reorder */
+  user-select: none;
 }
 .tab {
   display: flex;
@@ -188,6 +190,12 @@ body,
   color: var(--text);
   border-color: var(--accent);
   background: var(--bg-soft);
+}
+/* the tab currently being dragged to a new position */
+.tab.dragging {
+  opacity: 0.55;
+  cursor: grabbing;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
 }
 /* distinguish chat vs terminal tabs */
 .tab-terminal {

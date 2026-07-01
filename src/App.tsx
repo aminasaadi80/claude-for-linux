@@ -313,7 +313,10 @@ function App() {
   langRef.current = lang;
   const askConfirmRef = useRef(askConfirm);
   askConfirmRef.current = askConfirm;
-  const dragTab = useRef<string | null>(null);
+  // pointer-based tab drag-reordering (HTML5 DnD is swallowed by Tauri's native
+  // file drag-drop handler on webkit, so we drive it ourselves with pointers)
+  const dragState = useRef<{ id: string; startX: number; moved: boolean } | null>(null);
+  const [dragId, setDragId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const loaded = useRef(false);
   const saveTimer = useRef<number | undefined>(undefined);
@@ -646,19 +649,40 @@ function App() {
   const patchActive = (patch: Partial<Tab>) =>
     setTabs((ts) => ts.map((tb) => (tb.id === activeTab.id ? { ...tb, ...patch } : tb)));
 
-  const reorder = (targetId: string) => {
-    const from = dragTab.current;
-    dragTab.current = null;
-    if (!from || from === targetId) return;
+  const reorderLive = (fromId: string, overId: string) =>
     setTabs((ts) => {
       const arr = [...ts];
-      const fi = arr.findIndex((x) => x.id === from);
-      const ti = arr.findIndex((x) => x.id === targetId);
-      if (fi < 0 || ti < 0) return ts;
+      const fi = arr.findIndex((x) => x.id === fromId);
+      const ti = arr.findIndex((x) => x.id === overId);
+      if (fi < 0 || ti < 0 || fi === ti) return ts;
       const [moved] = arr.splice(fi, 1);
       arr.splice(ti, 0, moved);
       return arr;
     });
+  const onTabPointerDown = (e: React.PointerEvent, id: string) => {
+    if (e.button !== 0 || editingId === id) return;
+    dragState.current = { id, startX: e.clientX, moved: false };
+  };
+  const onTabPointerMove = (e: React.PointerEvent) => {
+    const st = dragState.current;
+    if (!st) return;
+    if (!st.moved) {
+      if (Math.abs(e.clientX - st.startX) < 5) return; // small threshold = still a click
+      st.moved = true;
+      setDragId(st.id);
+      try {
+        e.currentTarget.setPointerCapture(e.pointerId);
+      } catch {
+        /* ignore */
+      }
+    }
+    const over = (document.elementFromPoint(e.clientX, e.clientY) as Element | null)?.closest("[data-tab-id]");
+    const overId = over?.getAttribute("data-tab-id");
+    if (overId && overId !== st.id) reorderLive(st.id, overId);
+  };
+  const onTabPointerUp = () => {
+    dragState.current = null;
+    setDragId(null);
   };
   const commitRename = () => {
     const id = editingId;
@@ -790,11 +814,11 @@ function App() {
         {tabs.map((tb) => (
           <div
             key={tb.id}
-            className={`tab tab-${tb.kind} ${tb.id === activeId ? "active" : ""}`}
-            draggable
-            onDragStart={() => (dragTab.current = tb.id)}
-            onDragOver={(e) => e.preventDefault()}
-            onDrop={() => reorder(tb.id)}
+            data-tab-id={tb.id}
+            className={`tab tab-${tb.kind} ${tb.id === activeId ? "active" : ""} ${dragId === tb.id ? "dragging" : ""}`}
+            onPointerDown={(e) => onTabPointerDown(e, tb.id)}
+            onPointerMove={onTabPointerMove}
+            onPointerUp={onTabPointerUp}
             onClick={() => setActiveId(tb.id)}
             onDoubleClick={() => {
               setEditingId(tb.id);
