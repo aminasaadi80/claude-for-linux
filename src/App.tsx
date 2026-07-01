@@ -72,7 +72,7 @@ interface Settings {
   proxy: string;
 }
 
-const REPO_URL = "https://github.com/aminasaadi80/claude-for-linux";
+const SITE_URL = "https://aminasaadi80.github.io/claude-for-linux/";
 
 const PERMS: { id: Perm; en: string; fa: string }[] = [
   { id: "default", en: "Safe (ask)", fa: "امن (پرسش)" },
@@ -133,7 +133,7 @@ const STR = {
     proxySaved: "Saved",
     about: "About",
     version: "Version",
-    sourceCode: "Source code",
+    website: "Website",
     madeBy: "Made by",
     creator: "Amin Asaadi",
     pickTitle: "Choose project folder",
@@ -193,7 +193,7 @@ const STR = {
     proxySaved: "ذخیره شد",
     about: "درباره",
     version: "نسخه",
-    sourceCode: "کد منبع",
+    website: "وب‌سایت",
     madeBy: "ساخته‌ی",
     creator: "امین اسعدی",
     pickTitle: "انتخاب پوشه‌ی پروژه",
@@ -1245,9 +1245,9 @@ function App() {
                 </a>
               </div>
               <div className="about-row">
-                <span>{t.sourceCode}</span>
-                <a className="about-link" onClick={() => openUrl(REPO_URL)}>
-                  aminasaadi80/claude-for-linux
+                <span>{t.website}</span>
+                <a className="about-link" onClick={() => openUrl(SITE_URL)}>
+                  aminasaadi80.github.io/claude-for-linux
                 </a>
               </div>
             </div>

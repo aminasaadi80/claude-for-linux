@@ -10,6 +10,8 @@ Tabs, persistent conversations, Markdown/code rendering, drag-and-drop, and one-
 ![Platform: Linux](https://img.shields.io/badge/Platform-Linux-1a1714.svg)
 ![Built with Tauri](https://img.shields.io/badge/Built%20with-Tauri%20%2B%20React-d97757.svg)
 
+### 🌐 [Website](https://aminasaadi80.github.io/claude-for-linux/) · ⬇ [Download](../../releases/latest) · 💻 [GitHub](https://github.com/aminasaadi80/claude-for-linux)
+
 </div>
 
 > **It uses your existing Claude Code login.** No API key, no extra cost — the app drives the local `claude` CLI, so it authenticates with the same browser login you already use in the terminal, and runs on your existing subscription.
