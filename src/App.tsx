@@ -510,6 +510,25 @@ function App() {
     };
   }, []);
 
+  // Block pasting image clipboard content into the DOM — webkit2gtk (the Linux
+  // webview) frequently crashes when an image is pasted (e.g. Ctrl+Shift+V after
+  // copying a screenshot). Text paste is unaffected. Capture phase so it runs
+  // before any input's own handler.
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      for (const it of items) {
+        if (it.kind === "file" && it.type.startsWith("image/")) {
+          e.preventDefault();
+          return;
+        }
+      }
+    };
+    document.addEventListener("paste", onPaste, true);
+    return () => document.removeEventListener("paste", onPaste, true);
+  }, []);
+
   // global keyboard shortcuts
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

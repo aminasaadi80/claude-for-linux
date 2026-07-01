@@ -76,10 +76,15 @@ export default function TerminalView({
     term.attachCustomKeyEventHandler((e) => {
       if (e.type !== "keydown") return true;
       if (e.ctrlKey && e.shiftKey && e.code === "KeyC") {
+        e.preventDefault();
         copySel();
         return false;
       }
       if (e.ctrlKey && e.shiftKey && e.code === "KeyV") {
+        // preventDefault stops webkit's own native paste from also firing —
+        // webkit2gtk crashes when it tries to paste image clipboard content,
+        // so we route paste exclusively through our text-only clipboard_get.
+        e.preventDefault();
         pasteClipboard();
         return false;
       }

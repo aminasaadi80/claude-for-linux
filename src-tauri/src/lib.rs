@@ -672,7 +672,11 @@ fn clipboard_get() -> Result<String, String> {
         if which(bin) {
             if let Ok(o) = Command::new(bin).args(args).output() {
                 if o.status.success() {
-                    return Ok(String::from_utf8_lossy(&o.stdout).to_string());
+                    // Only return real text. If the clipboard holds an image or
+                    // other binary (invalid UTF-8), return empty instead of
+                    // dumping raw bytes into the terminal — pasting binary is a
+                    // frequent trigger for webkit crashes / broken TUIs.
+                    return Ok(String::from_utf8(o.stdout).unwrap_or_default());
                 }
             }
         }
