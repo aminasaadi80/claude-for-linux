@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
-import { usePrompt } from "./usePrompt";
+import { usePrompt, useConfirm } from "./usePrompt";
 
 type Lang = "en" | "fa";
 
@@ -45,6 +45,7 @@ const S = {
     download: "Download",
     rename: "Rename",
     del: "Delete",
+    cancel: "Cancel",
     empty: "Empty folder",
     name: "Name",
     size: "Size",
@@ -79,6 +80,7 @@ const S = {
     download: "دانلود",
     rename: "تغییر نام",
     del: "حذف",
+    cancel: "انصراف",
     empty: "پوشه‌ی خالی",
     name: "نام",
     size: "اندازه",
@@ -145,6 +147,7 @@ export default function RemotePanel({
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<number | null>(null);
   const { ask, node: promptNode } = usePrompt();
+  const { confirm, node: confirmNode } = useConfirm();
 
   const flash = useCallback((msg: string) => {
     setToast(msg);
@@ -250,7 +253,7 @@ export default function RemotePanel({
   };
 
   const remove = async (f: RemoteFile) => {
-    if (!confirm(t.delConfirm(f.name))) return;
+    if (!(await confirm(t.delConfirm(f.name), { ok: t.del, cancel: t.cancel, danger: true }))) return;
     setBusy(true);
     try {
       await invoke("remote_delete", { connId, path: f.path, isDir: f.is_dir });
@@ -449,6 +452,7 @@ export default function RemotePanel({
         </div>
       )}
       {promptNode}
+      {confirmNode}
     </div>
   );
 }

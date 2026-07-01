@@ -668,7 +668,10 @@ fn git_status(cwd: Option<String>) -> GitStatus {
     }
 
     let mut files = vec![];
-    let raw = git_out(&dir, &["status", "--porcelain"]);
+    // --untracked-files=all forces untracked files to show (overriding any
+    // status.showUntrackedFiles=no config) and lists each file inside a new
+    // folder individually instead of collapsing it to the directory.
+    let raw = git_out(&dir, &["status", "--porcelain", "--untracked-files=all"]);
     for line in raw.lines() {
         if line.len() < 4 {
             continue;

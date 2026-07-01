@@ -809,13 +809,33 @@ body,
   flex: 1;
 }
 .git-branch {
-  background: var(--panel);
+  appearance: none;
+  -webkit-appearance: none;
+  background-color: var(--panel);
   color: var(--text);
   border: 1px solid var(--border);
   border-radius: 6px;
-  padding: 4px 8px;
+  /* padding-right reserves room for the custom caret (matches the chat select) */
+  padding: 4px 28px 4px 10px;
   font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
   max-width: 220px;
+  text-align: start;
+  text-align-last: start;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'><path d='M2 4l4 4 4-4' fill='none' stroke='%239c948a' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 9px center;
+  transition: border-color 0.15s;
+}
+.git-branch:hover,
+.git-branch:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.git-branch option {
+  background: var(--bg-soft);
+  color: var(--text);
 }
 .git-track {
   display: inline-flex;
@@ -1095,6 +1115,30 @@ body,
   font-family: inherit;
   min-width: 0;
 }
+/* protocol dropdown — same themed look as the chat select (custom caret,
+   works in light/dark and RTL) */
+.rmt-row select {
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+  padding: 7px 30px 7px 9px;
+  text-align: start;
+  text-align-last: start;
+  background-color: var(--bg);
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'><path d='M2 4l4 4 4-4' fill='none' stroke='%239c948a' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  transition: border-color 0.15s;
+}
+.rmt-row select:hover,
+.rmt-row select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.rmt-row select option {
+  background: var(--bg-soft);
+  color: var(--text);
+}
 .rmt-port-l {
   width: auto !important;
 }
@@ -1325,5 +1369,11 @@ body,
   background: var(--accent);
   border-color: var(--accent);
   color: #1a1714;
+  font-weight: 600;
+}
+.prompt-btn.danger {
+  background: var(--err);
+  border-color: var(--err);
+  color: #fff;
   font-weight: 600;
 }

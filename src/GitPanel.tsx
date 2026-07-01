@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { usePrompt } from "./usePrompt";
+import { usePrompt, useConfirm } from "./usePrompt";
 
 type Lang = "en" | "fa";
 
@@ -50,6 +50,7 @@ const S = {
     stage: "Stage",
     unstage: "Unstage",
     discard: "Discard",
+    cancel: "Cancel",
     discardConfirm: (p: string) => `Discard all changes to "${p}"? This cannot be undone.`,
     commitMsg: "Commit message",
     commit: "Commit",
@@ -78,6 +79,7 @@ const S = {
     stage: "Stage",
     unstage: "خارج‌کردن",
     discard: "دور‌ریختن",
+    cancel: "انصراف",
     discardConfirm: (p: string) => `همه‌ی تغییرات «${p}» دور ریخته شود؟ قابل بازگشت نیست.`,
     commitMsg: "پیام commit",
     commit: "Commit",
@@ -109,6 +111,7 @@ export default function GitPanel({ cwd, lang }: { cwd: string; lang: Lang }) {
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<number | null>(null);
   const { ask, node: promptNode } = usePrompt();
+  const { confirm, node: confirmNode } = useConfirm();
 
   const flash = useCallback((msg: string) => {
     setToast(msg);
@@ -209,9 +212,9 @@ export default function GitPanel({ cwd, lang }: { cwd: string; lang: Lang }) {
             <button
               className="git-mini"
               title={t.discard}
-              onClick={(e) => {
+              onClick={async (e) => {
                 e.stopPropagation();
-                if (confirm(t.discardConfirm(f.path)))
+                if (await confirm(t.discardConfirm(f.path), { ok: t.discard, cancel: t.cancel, danger: true }))
                   run(() => invoke("git_discard", { cwd, path: f.path, untracked: f.untracked }));
               }}
             >
@@ -394,6 +397,7 @@ export default function GitPanel({ cwd, lang }: { cwd: string; lang: Lang }) {
         </div>
       )}
       {promptNode}
+      {confirmNode}
     </div>
   );
 }

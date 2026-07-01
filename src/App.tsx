@@ -17,6 +17,7 @@ import "highlight.js/styles/github-dark.css";
 import TerminalView from "./Terminal";
 import GitPanel from "./GitPanel";
 import RemotePanel, { type RemoteConfig } from "./RemotePanel";
+import { useConfirm } from "./usePrompt";
 import "./App.css";
 
 function quotePath(p: string): string {
@@ -269,6 +270,7 @@ function App() {
   const [claudeVersion, setClaudeVersion] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState("");
+  const { confirm: askConfirm, node: confirmNode } = useConfirm();
 
   const reqToTab = useRef<Record<string, string>>({});
   const tabReq = useRef<Record<string, string>>({});
@@ -281,6 +283,8 @@ function App() {
   activeIdRef.current = activeId;
   const langRef = useRef(lang);
   langRef.current = lang;
+  const askConfirmRef = useRef(askConfirm);
+  askConfirmRef.current = askConfirm;
   const dragTab = useRef<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const loaded = useRef(false);
@@ -496,12 +500,19 @@ function App() {
       } else if (code === "KeyW") {
         e.preventDefault();
         const id = activeIdRef.current;
-        setTabs((p) => {
-          let rest = p.filter((x) => x.id !== id);
-          if (rest.length === 0) rest = [newTab(langRef.current)];
-          setActiveId(rest[Math.max(0, Math.min(idx, rest.length - 1))].id);
-          return rest;
-        });
+        const tb = ts.find((x) => x.id === id);
+        const doClose = () =>
+          setTabs((p) => {
+            let rest = p.filter((x) => x.id !== id);
+            if (rest.length === 0) rest = [newTab(langRef.current)];
+            setActiveId(rest[Math.max(0, Math.min(idx, rest.length - 1))].id);
+            return rest;
+          });
+        if (tb)
+          askConfirmRef.current(STR[langRef.current].closeConfirm(tb.title)).then((ok) => {
+            if (ok) doClose();
+          });
+        else doClose();
       } else if (code === "Tab") {
         e.preventDefault();
         if (ts.length < 2) return;
@@ -562,10 +573,11 @@ function App() {
       return next;
     });
   };
-  const closeTab = (id: string) => {
-    // confirm so an accidental click on ✕ doesn't drop a running tab
+  const closeTab = async (id: string) => {
+    // confirm so an accidental click on ✕ doesn't drop a running tab (themed
+    // modal — window.confirm() is ignored under WebKitGTK)
     const tb = tabsRef.current.find((x) => x.id === id);
-    if (tb && !confirm(STR[lang].closeConfirm(tb.title))) return;
+    if (tb && !(await askConfirm(STR[lang].closeConfirm(tb.title)))) return;
     setTabs((ts) => {
       let rest = ts.filter((x) => x.id !== id);
       if (rest.length === 0) rest = [newTab(lang)];
@@ -1088,6 +1100,8 @@ function App() {
           </div>
         </div>
       )}
+
+      {confirmNode}
     </div>
   );
 }
