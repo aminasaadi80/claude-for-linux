@@ -73,17 +73,33 @@ export default function TerminalView({
         })
         .catch(() => {});
 
+    // preventDefault below also stops webkit's own native paste from firing —
+    // webkit2gtk crashes when it tries to paste image clipboard content, so we
+    // route paste exclusively through our text-only clipboard_get.
     term.attachCustomKeyEventHandler((e) => {
       if (e.type !== "keydown") return true;
-      if (e.ctrlKey && e.shiftKey && e.code === "KeyC") {
+      const ctrl = e.ctrlKey && !e.altKey && !e.metaKey;
+      // explicit terminal copy/paste
+      if (ctrl && e.shiftKey && e.code === "KeyC") {
         e.preventDefault();
         copySel();
         return false;
       }
-      if (e.ctrlKey && e.shiftKey && e.code === "KeyV") {
-        // preventDefault stops webkit's own native paste from also firing —
-        // webkit2gtk crashes when it tries to paste image clipboard content,
-        // so we route paste exclusively through our text-only clipboard_get.
+      if (ctrl && e.shiftKey && e.code === "KeyV") {
+        e.preventDefault();
+        pasteClipboard();
+        return false;
+      }
+      // Ctrl+C with a selection copies it (then clears) instead of sending
+      // SIGINT; with no selection it passes through to interrupt as usual.
+      if (ctrl && !e.shiftKey && e.code === "KeyC" && term.hasSelection()) {
+        e.preventDefault();
+        copySel();
+        term.clearSelection();
+        return false;
+      }
+      // Ctrl+V pastes, for people who expect the plain shortcut.
+      if (ctrl && !e.shiftKey && e.code === "KeyV") {
         e.preventDefault();
         pasteClipboard();
         return false;
