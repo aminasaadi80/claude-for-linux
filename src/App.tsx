@@ -5,6 +5,7 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { getVersion } from "@tauri-apps/api/app";
 import {
   isPermissionGranted,
   requestPermission,
@@ -71,6 +72,8 @@ interface Settings {
   proxy: string;
 }
 
+const REPO_URL = "https://github.com/aminasaadi80/claude-for-linux";
+
 const PERMS: { id: Perm; en: string; fa: string }[] = [
   { id: "default", en: "Safe (ask)", fa: "امن (پرسش)" },
   { id: "acceptEdits", en: "Accept edits", fa: "تأیید ویرایش‌ها" },
@@ -129,6 +132,8 @@ const STR = {
     proxySave: "Save",
     proxySaved: "Saved",
     about: "About",
+    version: "Version",
+    sourceCode: "Source code",
     madeBy: "Made by",
     creator: "Amin Asaadi",
     pickTitle: "Choose project folder",
@@ -187,6 +192,8 @@ const STR = {
     proxySave: "ذخیره",
     proxySaved: "ذخیره شد",
     about: "درباره",
+    version: "نسخه",
+    sourceCode: "کد منبع",
     madeBy: "ساخته‌ی",
     creator: "امین اسعدی",
     pickTitle: "انتخاب پوشه‌ی پروژه",
@@ -296,6 +303,7 @@ function App() {
   const [dragOver, setDragOver] = useState(false);
   const [imgPreview, setImgPreview] = useState<string | null>(null);
   const [claudeVersion, setClaudeVersion] = useState<string | null>(null);
+  const [appVersion, setAppVersion] = useState<string>("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState("");
   const { confirm: askConfirm, node: confirmNode } = useConfirm();
@@ -342,6 +350,7 @@ function App() {
       setProxyDraft(s.proxy || "");
     });
     invoke<string | null>("claude_check").then(setClaudeVersion);
+    getVersion().then(setAppVersion).catch(() => {});
     isPermissionGranted().then((g) => {
       if (!g) requestPermission();
     });
@@ -1224,10 +1233,21 @@ function App() {
               <span className="about-label">{t.about}</span>
               <div className="about-row">
                 <span>
+                  {t.version} <b>{appVersion || "—"}</b>
+                </span>
+              </div>
+              <div className="about-row">
+                <span>
                   {t.madeBy} <b>{t.creator}</b>
                 </span>
                 <a className="about-link" onClick={() => openUrl("https://aminasaadi.ir")}>
                   aminasaadi.ir
+                </a>
+              </div>
+              <div className="about-row">
+                <span>{t.sourceCode}</span>
+                <a className="about-link" onClick={() => openUrl(REPO_URL)}>
+                  aminasaadi80/claude-for-linux
                 </a>
               </div>
             </div>
