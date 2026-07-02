@@ -128,11 +128,42 @@ struct UsagePayload {
 // Claude Code
 // ----------------------------------------------------------------------------
 
-fn claude_binary() -> String {
+/// Common locations for user-installed CLIs (npm/homebrew/local), used both to
+/// locate `claude` directly and to widen PATH for spawned processes. GUI apps —
+/// especially on macOS, launched from Finder — inherit only a minimal PATH, so
+/// tools installed in these dirs aren't found unless we add them ourselves.
+fn extra_bin_dirs() -> Vec<PathBuf> {
+    let mut v = vec![];
     if let Some(home) = dirs::home_dir() {
-        let local = home.join(".local/bin/claude");
-        if local.exists() {
-            return local.to_string_lossy().into_owned();
+        v.push(home.join(".local/bin"));
+        v.push(home.join(".npm-global/bin"));
+        v.push(home.join(".bun/bin"));
+        v.push(home.join("bin"));
+    }
+    v.push(PathBuf::from("/opt/homebrew/bin")); // macOS (Apple Silicon)
+    v.push(PathBuf::from("/usr/local/bin")); // macOS (Intel) / npm global
+    v.push(PathBuf::from("/usr/bin"));
+    v
+}
+
+/// PATH with the common CLI dirs prepended to whatever the app already has.
+fn augmented_path() -> String {
+    let extra = extra_bin_dirs()
+        .iter()
+        .map(|p| p.to_string_lossy().into_owned())
+        .collect::<Vec<_>>()
+        .join(":");
+    match std::env::var("PATH") {
+        Ok(p) if !p.is_empty() => format!("{}:{}", extra, p),
+        _ => extra,
+    }
+}
+
+fn claude_binary() -> String {
+    for dir in extra_bin_dirs() {
+        let cand = dir.join("claude");
+        if cand.exists() {
+            return cand.to_string_lossy().into_owned();
         }
     }
     "claude".to_string()
@@ -214,6 +245,7 @@ fn code_send(
     cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
     cmd.process_group(0); // own group so we can cancel the whole tree
 
+    cmd.env("PATH", augmented_path()); // so `claude`/`node` are found (esp. macOS GUI)
     if let Some(px) = proxy_url() {
         cmd.env("HTTPS_PROXY", &px);
         cmd.env("HTTP_PROXY", &px);
@@ -357,6 +389,20 @@ fn open_terminal(cwd: Option<String>) -> Result<(), String> {
         .or_else(|| dirs::home_dir().map(|p| p.to_string_lossy().into_owned()))
         .unwrap_or_else(|| ".".to_string());
 
+    // macOS: open the default Terminal at the folder
+    #[cfg(target_os = "macos")]
+    {
+        if Command::new("open")
+            .arg("-a")
+            .arg("Terminal")
+            .arg(&dir)
+            .spawn()
+            .is_ok()
+        {
+            return Ok(());
+        }
+    }
+
     // try the common emulators in order
     let attempts: Vec<(&str, Vec<String>)> = vec![
         ("gnome-terminal", vec![format!("--working-directory={}", dir)]),
@@ -432,6 +478,7 @@ fn pty_open(
 
     let mut cmd = CommandBuilder::new(claude_binary());
     cmd.env("TERM", "xterm-256color");
+    cmd.env("PATH", augmented_path()); // find `claude`/`node` on macOS GUI too
     if let Some(px) = proxy_url() {
         cmd.env("HTTPS_PROXY", &px);
         cmd.env("HTTP_PROXY", &px);
@@ -557,6 +604,7 @@ fn ssh_open(
     };
 
     cmd.env("TERM", "xterm-256color");
+    cmd.env("PATH", augmented_path()); // so `nc`/`sshpass` (proxy/password) are found
     // NOTE: intentionally NOT injecting the app proxy here — SSH proxying is
     // per-connection and handled below via ProxyCommand.
     cmd.arg("-tt"); // force a PTY on the remote even through ProxyCommand
@@ -642,7 +690,8 @@ fn write_text_file(path: String, content: String) -> Result<(), String> {
 // Clipboard via the system tool (navigator.clipboard is unreliable in webkit2gtk).
 #[tauri::command]
 fn clipboard_set(text: String) -> Result<(), String> {
-    let tools: [(&str, &[&str]); 3] = [
+    let tools: [(&str, &[&str]); 4] = [
+        ("pbcopy", &[]), // macOS
         ("wl-copy", &[]),
         ("xclip", &["-selection", "clipboard"]),
         ("xsel", &["--clipboard", "--input"]),
@@ -663,7 +712,8 @@ fn clipboard_set(text: String) -> Result<(), String> {
 
 #[tauri::command]
 fn clipboard_get() -> Result<String, String> {
-    let tools: [(&str, &[&str]); 3] = [
+    let tools: [(&str, &[&str]); 4] = [
+        ("pbpaste", &[]), // macOS
         ("wl-paste", &["--no-newline"]),
         ("xclip", &["-selection", "clipboard", "-o"]),
         ("xsel", &["--clipboard", "--output"]),
