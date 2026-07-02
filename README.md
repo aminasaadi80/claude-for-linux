@@ -7,7 +7,7 @@
 Tabs, persistent conversations, Markdown/code rendering, drag-and-drop, and one-click terminal — all on top of the `claude` CLI you already use.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-d97757.svg)](LICENSE)
-![Platform: Linux](https://img.shields.io/badge/Platform-Linux-1a1714.svg)
+![Platform: Linux · macOS](https://img.shields.io/badge/Platform-Linux%20%C2%B7%20macOS-1a1714.svg)
 ![Built with Tauri](https://img.shields.io/badge/Built%20with-Tauri%20%2B%20React-d97757.svg)
 
 ### 🌐 [Website](https://aminasaadi80.github.io/claude-for-linux/) · ⬇ [Download](../../releases/latest) · 💻 [GitHub](https://github.com/aminasaadi80/claude-for-linux)
@@ -66,6 +66,16 @@ Download the `.AppImage` from [Releases](../../releases), then:
 ```bash
 chmod +x "Claude for Linux_*_amd64.AppImage"
 ./"Claude for Linux_*_amd64.AppImage"
+```
+
+### Option C — macOS (.dmg)
+
+Download the universal `.dmg` (Apple Silicon + Intel) from [Releases](../../releases), open it and drag the app to **Applications**.
+
+The build is **unsigned** (no paid Apple Developer certificate), so on first launch macOS Gatekeeper will block it. Either **right-click the app → Open**, or clear the quarantine flag:
+
+```bash
+xattr -cr "/Applications/Claude for Linux.app"
 ```
 
 ## 🛠 Build from source

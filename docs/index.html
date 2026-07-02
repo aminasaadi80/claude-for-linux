@@ -184,12 +184,12 @@
     <h1><span data-i18n="hero_title_1">A desktop GUI for </span><span class="accent">Claude Code</span><span data-i18n="hero_title_2"> on Linux</span></h1>
     <p class="lead" data-i18n="hero_lead">Tabs, an embedded terminal, a Git panel, SFTP/FTP &amp; SSH clients, and per-connection proxies — all on top of the <code>claude</code> CLI you already use.</p>
     <div class="cta">
-      <a class="btn primary" href="https://github.com/aminasaadi80/claude-for-linux/releases/latest">⬇ <span data-i18n="cta_download">Download for Linux</span></a>
+      <a class="btn primary" href="https://github.com/aminasaadi80/claude-for-linux/releases/latest">⬇ <span data-i18n="cta_download">Download</span></a>
       <a class="btn" href="https://github.com/aminasaadi80/claude-for-linux">★ <span data-i18n="cta_github">View on GitHub</span></a>
     </div>
     <div class="badges">
       <img alt="MIT" src="https://img.shields.io/badge/License-MIT-d97757.svg" />
-      <img alt="Linux" src="https://img.shields.io/badge/Platform-Linux-1a1714.svg" />
+      <img alt="Linux · macOS" src="https://img.shields.io/badge/Platform-Linux%20%C2%B7%20macOS-1a1714.svg" />
       <img alt="Tauri + React" src="https://img.shields.io/badge/Built%20with-Tauri%20%2B%20React-d97757.svg" />
     </div>
     <div class="shot">
@@ -282,6 +282,11 @@ claude</pre>
         <p class="note" data-i18n="step3_note">Portable — no installation needed.</p>
       </div>
       <div class="step">
+        <h3><span class="n">🍎</span> <span data-i18n="stepmac_title">macOS (.dmg)</span></h3>
+        <pre>xattr -cr "/Applications/Claude for Linux.app"</pre>
+        <p class="note" data-i18n="stepmac_note">Universal (Apple Silicon + Intel). Unsigned — on first launch right-click the app → Open, or run the command above.</p>
+      </div>
+      <div class="step">
         <h3><span class="n">3</span> <span data-i18n="step4_title">Build from source</span></h3>
         <pre>npm install
 npm run tauri build</pre>
@@ -307,7 +312,7 @@ npm run tauri build</pre>
       hero_badge: "🔑 بدون کلید API — از لاگین فعلی Claude Code استفاده می‌کند",
       hero_title_1: "یک رابط گرافیکی برای ", hero_title_2: " روی لینوکس",
       hero_lead: "تب‌ها، ترمینال داخلی، پنل Git، کلاینت SFTP/FTP و SSH، و پروکسی مجزا برای هر اتصال — همه روی همان CLIِ <code>claude</code> که استفاده می‌کنی.",
-      cta_download: "دانلود برای لینوکس", cta_github: "مشاهده در گیت‌هاب",
+      cta_download: "دانلود", cta_github: "مشاهده در گیت‌هاب",
       feat_title: "همه‌چیز، در یک پنجره", feat_sub: "راحتیِ یک GUI، با تمام قدرتِ CLI.",
       f1t: "بدون کلید API", f1d: "CLIِ محلی <code>claude</code> را اجرا می‌کند؛ همان لاگین مرورگر و همان اشتراک — بدون کلید و هزینه‌ی اضافه.",
       f2t: "چند تب هم‌زمان", f2d: "چند جلسه‌ی مستقل Claude را کنار هم اجرا کن و تب‌ها را با کشیدن جابه‌جا کن.",
@@ -332,6 +337,7 @@ npm run tauri build</pre>
       step1_title: "CLIِ Claude Code", step1_note: "لاگین مرورگری را کامل کن — برنامه از همان استفاده می‌کند، بدون کلید API.",
       step2_title: "دبیان / اوبونتو (.deb)", step2_note: "فایل .deb را از", releases: "Releases",
       step3_title: "هر توزیع (.AppImage)", step3_note: "قابل حمل — نیازی به نصب ندارد.",
+      stepmac_title: "مک (.dmg)", stepmac_note: "یونیورسال (Apple Silicon و Intel). امضا نشده — بار اول روی برنامه راست‌کلیک → Open، یا دستور بالا را اجرا کن.",
       step4_title: "بیلد از سورس", step4_note: "به Node.js، Rust و کتابخانه‌های لینوکسیِ Tauri نیاز دارد.",
       made_by: "ساخته‌ی", license: "مجوز MIT",
       disclaimer: "وابسته یا مورد تأیید Anthropic نیست. «Claude» علامت تجاری Anthropic است؛ این یک کلاینت مستقل و غیررسمی است."
