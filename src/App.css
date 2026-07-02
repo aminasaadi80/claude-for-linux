@@ -10,6 +10,10 @@
   --user: #34302b;
   --assistant: #242019;
   --err: #e0563f;
+  /* git diff line text — light values tuned for the dark theme */
+  --diff-add: #9fe09f;
+  --diff-del: #f0a090;
+  --diff-hunk: #6c9cd9;
   font-family: -apple-system, "Segoe UI", Roboto, "Vazirmatn", system-ui, sans-serif;
 }
 
@@ -22,6 +26,10 @@
   --muted: #6b6258;
   --user: #e7ded0;
   --assistant: #efe9df;
+  /* darker, saturated diff colors so they stay readable on the light bg */
+  --diff-add: #2f7d32;
+  --diff-del: #b3402c;
+  --diff-hunk: #3b6fb0;
 }
 
 * {
@@ -203,7 +211,7 @@ body,
 }
 .tab-terminal.active {
   border-color: #5aa7a0;
-  background: #1d2422;
+  background: var(--bg-soft);
 }
 .tab-chat {
   border-inline-start: 3px solid var(--accent);
@@ -222,7 +230,7 @@ body,
 }
 .tab-ssh.active {
   border-color: #b48ead;
-  background: #221d24;
+  background: var(--bg-soft);
 }
 .tab-ico {
   font-size: 12px;
@@ -369,7 +377,8 @@ body,
   line-height: 1.7;
   font-size: var(--chat-font, 14.5px);
   flex: 1;
-  text-align: right;
+  /* follow the UI language: left in English (ltr), right in Farsi (rtl) */
+  text-align: start;
 }
 .msg.user .bubble {
   background: var(--user);
@@ -422,6 +431,8 @@ body,
 }
 .bubble :not(pre) > code {
   background: #0f0d0b;
+  /* bg is always dark, so pin a light text color (readable in both themes) */
+  color: #e9c8a8;
   padding: 1px 5px;
   border-radius: 4px;
   direction: ltr;
@@ -910,7 +921,7 @@ body,
   min-width: 280px;
   display: flex;
   flex-direction: column;
-  border-right: 1px solid var(--border);
+  border-inline-end: 1px solid var(--border);
   overflow: hidden;
 }
 .git-right {
@@ -1052,14 +1063,14 @@ body,
 }
 .git-dl.add {
   background: rgba(108, 192, 108, 0.14);
-  color: #9fe09f;
+  color: var(--diff-add);
 }
 .git-dl.del {
   background: rgba(224, 86, 63, 0.14);
-  color: #f0a090;
+  color: var(--diff-del);
 }
 .git-dl.hunk {
-  color: #6c9cd9;
+  color: var(--diff-hunk);
 }
 .git-dl.meta {
   color: var(--muted);
