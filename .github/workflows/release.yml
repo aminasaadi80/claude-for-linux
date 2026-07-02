@@ -8,9 +8,21 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-24.04
     permissions:
       contents: write # required for tauri-action to create the release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux — .deb + portable .AppImage
+          - platform: ubuntu-24.04
+            args: "--bundles deb appimage"
+            rust-targets: ""
+          # macOS — universal .dmg (Apple Silicon + Intel)
+          - platform: macos-latest
+            args: "--target universal-apple-darwin --bundles dmg"
+            rust-targets: "aarch64-apple-darwin,x86_64-apple-darwin"
+    runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
 
@@ -19,8 +31,11 @@ jobs:
           node-version: 20
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-targets }}
 
-      - name: Install system dependencies
+      - name: Install Linux system dependencies
+        if: matrix.platform == 'ubuntu-24.04'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -37,6 +52,6 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "Claude for Linux ${{ github.ref_name }}"
-          releaseBody: "Native Claude Code desktop app for Linux. Download the `.deb` (Debian/Ubuntu) or the portable `.AppImage` below."
+          releaseBody: "Native Claude Code desktop app. Download the `.deb`/`.AppImage` (Linux) or the `.dmg` (macOS) below. The macOS build is unsigned — on first launch, right-click the app → Open, or run `xattr -cr \"/Applications/Claude for Linux.app\"`."
           releaseDraft: false
-          args: --bundles deb appimage
+          args: ${{ matrix.args }}
