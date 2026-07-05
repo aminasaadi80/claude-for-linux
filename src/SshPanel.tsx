@@ -25,6 +25,8 @@ const S = {
       "Separate from the app proxy. Routed through SSH ProxyCommand — needs `nc` (netcat-openbsd) installed. Prefix with socks5:// or http:// (default http).",
     connect: "Connect",
     disconnect: "Disconnect",
+    reconnect: "Reconnect",
+    dropped: "Connection lost",
     save: "Save this server",
     saved: "Saved servers",
     fillHost: "Enter a host to connect.",
@@ -49,6 +51,8 @@ const S = {
       "جدا از پروکسی برنامه است. از طریق ProxyCommand در SSH رد می‌شود — به `nc` (netcat-openbsd) نیاز دارد. با socks5:// یا http:// شروع کن (پیش‌فرض http).",
     connect: "اتصال",
     disconnect: "قطع",
+    reconnect: "اتصال مجدد",
+    dropped: "اتصال قطع شد",
     save: "ذخیره‌ی این سرور",
     saved: "سرورهای ذخیره‌شده",
     fillHost: "برای اتصال یک هاست وارد کن.",
@@ -90,6 +94,8 @@ export default function SshPanel({
   const t = S[lang];
   const { confirm, node: confirmNode } = useConfirm();
   const [connected, setConnected] = useState(false);
+  // true once the ssh session drops while still on the live view
+  const [exited, setExited] = useState(false);
   // bumped on every connect so the terminal remounts (fresh ssh session)
   const [nonce, setNonce] = useState(0);
   const [err, setErr] = useState<string | null>(null);
@@ -109,12 +115,21 @@ export default function SshPanel({
       return;
     }
     setErr(null);
+    setExited(false);
     setNonce((n) => n + 1);
     setConnected(true);
   };
 
+  // relaunch ssh in the same tab: close any stale process, remount the terminal
+  const reconnect = () => {
+    invoke("pty_close", { termId: connId }).catch(() => {});
+    setExited(false);
+    setNonce((n) => n + 1);
+  };
+
   const disconnect = () => {
     invoke("pty_close", { termId: connId }).catch(() => {});
+    setExited(false);
     setConnected(false);
   };
 
@@ -224,14 +239,27 @@ export default function SshPanel({
     <div className="rmt-panel ssh-live">
       <div className="rmt-bar">
         <span className="rmt-path" title={label(config)}>
-          🔐 {t.connectedTo} {label(config)}
+          {exited ? "⚠️" : "🔐"} {exited ? t.dropped : t.connectedTo} {label(config)}
         </span>
         <span className="rmt-spacer" />
+        {exited && (
+          <button className="rmt-btn primary" onClick={reconnect}>
+            🔄 {t.reconnect}
+          </button>
+        )}
         <button className="rmt-btn danger" onClick={disconnect}>
           {t.disconnect}
         </button>
       </div>
-      <TerminalView key={nonce} termId={connId} cwd="" ssh={config} fontSize={fontSize} flush />
+      <TerminalView
+        key={nonce}
+        termId={connId}
+        cwd=""
+        ssh={config}
+        fontSize={fontSize}
+        flush
+        onExit={() => setExited(true)}
+      />
     </div>
   );
 }

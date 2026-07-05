@@ -32,6 +32,7 @@ export default function TerminalView({
   fontSize,
   ssh,
   flush,
+  onExit,
 }: {
   termId: string;
   cwd: string;
@@ -41,8 +42,13 @@ export default function TerminalView({
   ssh?: SshConfig;
   /** trim the extra bottom padding (used for plain shells / ssh) */
   flush?: boolean;
+  /** fired when the underlying process/ssh session exits */
+  onExit?: () => void;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
+  // keep the latest onExit without re-running the terminal effect
+  const onExitRef = useRef(onExit);
+  onExitRef.current = onExit;
 
   useEffect(() => {
     const term = new Terminal({
@@ -153,12 +159,14 @@ export default function TerminalView({
       if (e.payload.id === termId && !disposed) term.write(b64ToBytes(e.payload.data));
     });
     const unExit = listen("pty://exit", (e: { payload: { id: string } }) => {
-      if (e.payload.id === termId && !disposed)
+      if (e.payload.id === termId && !disposed) {
         term.write(
           ssh
-            ? "\r\n\x1b[33m[ssh session ended — press Disconnect or reconnect]\x1b[0m\r\n"
+            ? "\r\n\x1b[33m[ssh session ended — press Reconnect]\x1b[0m\r\n"
             : "\r\n\x1b[33m[claude exited — close this tab]\x1b[0m\r\n"
         );
+        onExitRef.current?.();
+      }
     });
     const dataSub = term.onData((d) => invoke("pty_write", { termId, data: d }).catch(() => {}));
 
