@@ -66,6 +66,11 @@ interface Tab {
   /** terminal tabs: pass --dangerously-skip-permissions so Claude never stops
    * to ask (equivalent to "yes" / "yes, always" on every prompt) */
   skipPermissions?: boolean;
+  /** terminal tabs: a dedicated claude session id so each tab restores its own
+   * conversation on restart — even when several tabs share one project folder.
+   * Absent on session-picker tabs (they attach to an externally chosen session)
+   * and on legacy tabs saved before this existed. */
+  termSession?: string;
 }
 interface Settings {
   lang: Lang;
@@ -246,6 +251,7 @@ function newTab(lang: Lang, kind: TabKind = "chat", cwd = ""): Tab {
     permission: "default",
     ...(kind === "remote" ? { remote: newRemoteConfig() } : {}),
     ...(kind === "ssh" ? { ssh: newSshConfig() } : {}),
+    ...(kind === "terminal" ? { termSession: crypto.randomUUID() } : {}),
   };
 }
 
@@ -328,6 +334,9 @@ function App() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const loaded = useRef(false);
   const saveTimer = useRef<number | undefined>(undefined);
+  // claude session ids we've already spawned this run — a fresh terminal launches
+  // with `--session-id X` (creates it); every later mount resumes with `--resume X`
+  const startedSessions = useRef<Set<string>>(new Set());
 
   const activeTab = tabs.find((tb) => tb.id === activeId) ?? tabs[0];
   const messages = activeTab ? activeTab.messages : [];
@@ -607,7 +616,12 @@ function App() {
   };
   const addTerminalTab = (extra?: string[]) => {
     const tb = newTab(lang, "terminal", activeTab?.cwd || "");
-    if (extra) (tb as Tab & { _extra?: string[] })._extra = extra;
+    // session-picker tabs attach to an externally chosen session, so they don't
+    // own a dedicated --session-id of their own
+    if (extra) {
+      (tb as Tab & { _extra?: string[] })._extra = extra;
+      delete tb.termSession;
+    }
     setTabs((ts) => [...ts, tb]);
     setActiveId(tb.id);
   };
@@ -917,7 +931,27 @@ function App() {
       {/* terminal tabs stay mounted (hidden when inactive) so they keep running */}
       {tabs
         .filter((tb) => tb.kind === "terminal")
-        .map((tb) => (
+        .map((tb) => {
+          const extra = (tb as Tab & { _extra?: string[] })._extra;
+          // decide how this terminal attaches to a claude session:
+          //  • restored (app restart): resume this tab's own session by id, so
+          //    two tabs in the same folder no longer collapse into one
+          //  • picker tab (--resume): honour the explicit args
+          //  • fresh tab: create a dedicated session with --session-id the first
+          //    time, then --resume it on any later remount (folder/skip change)
+          const started = !!tb.termSession && startedSessions.current.has(tb.termSession);
+          const sessionArgs = tb.restored
+            ? tb.termSession
+              ? ["--resume", tb.termSession]
+              : ["--continue"]
+            : extra
+              ? extra
+              : tb.termSession
+                ? started
+                  ? ["--resume", tb.termSession]
+                  : ["--session-id", tb.termSession]
+                : [];
+          return (
           <div key={tb.id} className="term-wrap" style={{ display: tb.id === activeId ? "flex" : "none" }}>
             <div className="cwd-bar">
               <label>{t.folder}</label>
@@ -959,12 +993,16 @@ function App() {
               cwd={tb.cwd}
               fontSize={fontSize}
               extraArgs={[
-                ...(tb.restored ? ["--continue"] : (tb as Tab & { _extra?: string[] })._extra ?? []),
+                ...sessionArgs,
                 ...(tb.skipPermissions ? ["--dangerously-skip-permissions"] : []),
               ]}
+              onStarted={() => {
+                if (tb.termSession) startedSessions.current.add(tb.termSession);
+              }}
             />
           </div>
-        ))}
+          );
+        })}
 
       {/* git tabs: folder bar + panel, scoped to the chosen project folder */}
       {tabs
