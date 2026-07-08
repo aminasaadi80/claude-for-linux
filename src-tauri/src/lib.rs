@@ -461,6 +461,26 @@ struct PtyData {
     data: String, // base64 of raw bytes
 }
 
+/// Claude Code keeps each conversation at
+/// `~/.claude/projects/<slug>/<session_id>.jsonl`, where <slug> is the absolute
+/// project folder with every non-alphanumeric character turned into '-'. This
+/// lets us tell whether a given tab's dedicated session already exists *for the
+/// current folder* — sessions are folder-scoped, so a session created in folder A
+/// can't be resumed from folder B.
+fn claude_session_file(cwd: &str, session_id: &str) -> Option<std::path::PathBuf> {
+    let home = dirs::home_dir()?;
+    let slug: String = cwd
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect();
+    Some(
+        home.join(".claude")
+            .join("projects")
+            .join(slug)
+            .join(format!("{session_id}.jsonl")),
+    )
+}
+
 #[tauri::command]
 fn pty_open(
     app: AppHandle,
@@ -470,6 +490,12 @@ fn pty_open(
     rows: u16,
     cols: u16,
     extra_args: Option<Vec<String>>,
+    // optional per-tab claude session id. When set, the tab resumes this exact
+    // session (`--resume`) if it already exists for the current folder, or
+    // creates it (`--session-id`) otherwise — so tabs sharing a folder stay
+    // distinct and a folder change starts a fresh conversation instead of
+    // failing to resume a session that lives under a different folder.
+    claude_session: Option<String>,
 ) -> Result<(), String> {
     let pty = native_pty_system();
     let pair = pty
@@ -484,7 +510,27 @@ fn pty_open(
         cmd.env("HTTP_PROXY", &px);
         cmd.env("ALL_PROXY", &px);
     }
-    // e.g. ["--continue"] for restored tabs, ["--resume"] for the session picker
+    // the folder this claude runs in (explicit cwd, else home) — also the key
+    // under which its session file lives
+    let effective_cwd = cwd
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+        .map(|s| s.to_string())
+        .or_else(|| dirs::home_dir().map(|h| h.to_string_lossy().into_owned()));
+
+    // resume this tab's own session if it already exists for this folder,
+    // otherwise create it with that id (keeps same-folder tabs independent)
+    if let Some(sid) = claude_session.as_deref().filter(|s| !s.trim().is_empty()) {
+        let exists = effective_cwd
+            .as_deref()
+            .and_then(|c| claude_session_file(c, sid))
+            .map(|p| p.exists())
+            .unwrap_or(false);
+        cmd.arg(if exists { "--resume" } else { "--session-id" });
+        cmd.arg(sid);
+    }
+
+    // e.g. ["--continue"] for legacy restored tabs, ["--resume"] for the picker
     if let Some(args) = extra_args {
         for a in args {
             if !a.trim().is_empty() {
@@ -492,10 +538,8 @@ fn pty_open(
             }
         }
     }
-    if let Some(dir) = cwd.as_deref().filter(|s| !s.trim().is_empty()) {
+    if let Some(dir) = effective_cwd.as_deref() {
         cmd.cwd(dir);
-    } else if let Some(home) = dirs::home_dir() {
-        cmd.cwd(home);
     }
 
     let child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;

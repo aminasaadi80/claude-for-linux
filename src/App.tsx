@@ -334,9 +334,6 @@ function App() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const loaded = useRef(false);
   const saveTimer = useRef<number | undefined>(undefined);
-  // claude session ids we've already spawned this run — a fresh terminal launches
-  // with `--session-id X` (creates it); every later mount resumes with `--resume X`
-  const startedSessions = useRef<Set<string>>(new Set());
 
   const activeTab = tabs.find((tb) => tb.id === activeId) ?? tabs[0];
   const messages = activeTab ? activeTab.messages : [];
@@ -933,24 +930,11 @@ function App() {
         .filter((tb) => tb.kind === "terminal")
         .map((tb) => {
           const extra = (tb as Tab & { _extra?: string[] })._extra;
-          // decide how this terminal attaches to a claude session:
-          //  • restored (app restart): resume this tab's own session by id, so
-          //    two tabs in the same folder no longer collapse into one
-          //  • picker tab (--resume): honour the explicit args
-          //  • fresh tab: create a dedicated session with --session-id the first
-          //    time, then --resume it on any later remount (folder/skip change)
-          const started = !!tb.termSession && startedSessions.current.has(tb.termSession);
-          const sessionArgs = tb.restored
-            ? tb.termSession
-              ? ["--resume", tb.termSession]
-              : ["--continue"]
-            : extra
-              ? extra
-              : tb.termSession
-                ? started
-                  ? ["--resume", tb.termSession]
-                  : ["--session-id", tb.termSession]
-                : [];
+          // Tabs with a dedicated session id let the backend choose --resume vs
+          // --session-id by whether that session exists for the current folder.
+          // Picker tabs (--resume) and legacy tabs (no id → --continue on restart)
+          // keep their explicit flags.
+          const legacyArgs = tb.termSession ? [] : tb.restored ? ["--continue"] : extra ?? [];
           return (
           <div key={tb.id} className="term-wrap" style={{ display: tb.id === activeId ? "flex" : "none" }}>
             <div className="cwd-bar">
@@ -991,14 +975,12 @@ function App() {
               key={`${tb.cwd}|${tb.skipPermissions ? "y" : "n"}`}
               termId={tb.id}
               cwd={tb.cwd}
+              claudeSession={tb.termSession}
               fontSize={fontSize}
               extraArgs={[
-                ...sessionArgs,
+                ...legacyArgs,
                 ...(tb.skipPermissions ? ["--dangerously-skip-permissions"] : []),
               ]}
-              onStarted={() => {
-                if (tb.termSession) startedSessions.current.add(tb.termSession);
-              }}
             />
           </div>
           );

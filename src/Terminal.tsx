@@ -33,7 +33,7 @@ export default function TerminalView({
   ssh,
   flush,
   onExit,
-  onStarted,
+  claudeSession,
 }: {
   termId: string;
   cwd: string;
@@ -45,16 +45,14 @@ export default function TerminalView({
   flush?: boolean;
   /** fired when the underlying process/ssh session exits */
   onExit?: () => void;
-  /** fired once the claude PTY has been spawned (so the caller can switch a
-   *  fresh `--session-id` launch to `--resume` on the next mount) */
-  onStarted?: () => void;
+  /** per-tab claude session id; the backend resumes it if it exists for this
+   *  folder, else creates it — so same-folder tabs stay independent */
+  claudeSession?: string;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
-  // keep the latest callbacks without re-running the terminal effect
+  // keep the latest onExit without re-running the terminal effect
   const onExitRef = useRef(onExit);
   onExitRef.current = onExit;
-  const onStartedRef = useRef(onStarted);
-  onStartedRef.current = onStarted;
 
   useEffect(() => {
     const term = new Terminal({
@@ -158,9 +156,8 @@ export default function TerminalView({
         rows: term.rows,
         cols: term.cols,
         extraArgs: extraArgs ?? [],
-      })
-        .then(() => onStartedRef.current?.())
-        .catch(() => {});
+        claudeSession: claudeSession ?? null,
+      }).catch(() => {});
     }
 
     const unData = listen("pty://data", (e: { payload: { id: string; data: string } }) => {
