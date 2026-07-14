@@ -61,6 +61,7 @@ const S = {
     ahead: "ahead",
     behind: "behind",
     done: "Done",
+    closeDiff: "Close (back to history)",
   },
   fa: {
     noRepo: "این پوشه یک مخزن git نیست.",
@@ -90,6 +91,7 @@ const S = {
     ahead: "جلو",
     behind: "عقب",
     done: "انجام شد",
+    closeDiff: "بستن (بازگشت به تاریخچه)",
   },
 };
 
@@ -357,7 +359,16 @@ export default function GitPanel({ cwd, lang, proxy }: { cwd: string; lang: Lang
         {/* right: diff or history */}
         <div className="git-right">
           {sel ? (
-            <pre className="git-diff">
+            <>
+              <div className="git-section-head git-diff-head">
+                <span className="git-diff-file" title={sel.path}>
+                  {sel.path}
+                </span>
+                <button className="git-link" onClick={() => setSel(null)} title={t.closeDiff}>
+                  ✕ {t.closeDiff}
+                </button>
+              </div>
+              <pre className="git-diff">
               {diff.split("\n").map((ln, i) => {
                 let cls = "";
                 if (ln.startsWith("+") && !ln.startsWith("+++")) cls = "add";
@@ -370,7 +381,8 @@ export default function GitPanel({ cwd, lang, proxy }: { cwd: string; lang: Lang
                   </div>
                 );
               })}
-            </pre>
+              </pre>
+            </>
           ) : (
             <div className="git-history">
               <div className="git-section-head">

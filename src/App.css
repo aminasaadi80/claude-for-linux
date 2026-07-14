@@ -1047,6 +1047,26 @@ body,
   display: flex;
   gap: 8px;
 }
+.git-diff-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  gap: 10px;
+}
+.git-diff-file {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: ltr;
+  text-align: left;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text);
+}
+.git-diff-head .git-link {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
 .git-diff {
   margin: 0;
   padding: 8px 0;
