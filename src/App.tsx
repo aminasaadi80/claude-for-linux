@@ -1,80 +1,30 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { invoke, convertFileSrc } from "@tauri-apps/api/core";
+import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { openUrl } from "@tauri-apps/plugin-opener";
 import { getVersion } from "@tauri-apps/api/app";
 import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import rehypeHighlight from "rehype-highlight";
 import "highlight.js/styles/github-dark.css";
 import TerminalView from "./Terminal";
 import GitPanel from "./GitPanel";
 import RemotePanel, { type RemoteConfig } from "./RemotePanel";
 import SshPanel, { type SshConfig } from "./SshPanel";
 import { useConfirm } from "./usePrompt";
+import ChatView from "./components/ChatView";
 import CwdBar from "./components/CwdBar";
+import SettingsModal from "./components/SettingsModal";
+import TabStrip from "./components/TabStrip";
 import { APP_STR as STR, type Lang } from "./i18n";
 import { quotePath, isImage } from "./utils";
+import type { Message, Tab, TabKind, Theme, Usage } from "./types";
 import "./App.css";
 
-type Role = "user" | "assistant";
-type Perm = "default" | "acceptEdits" | "bypassPermissions";
-type Theme = "dark" | "light";
-
-interface Message {
-  role: Role;
-  content: string;
-  streaming?: boolean;
-  error?: boolean;
-  kind?: "tool";
-}
-interface Usage {
-  input: number;
-  output: number;
-}
-type TabKind = "chat" | "terminal" | "git" | "remote" | "ssh";
-interface Tab {
-  id: string;
-  kind: TabKind;
-  title: string;
-  /** remote (SFTP/FTP) tabs: the connection draft for this tab */
-  remote?: RemoteConfig;
-  /** ssh tabs: the connection draft for this tab */
-  ssh?: SshConfig;
-  /** git tabs: optional per-tab proxy for network ops (independent of app proxy) */
-  gitProxy?: string;
-  messages: Message[];
-  cwd: string;
-  sessionId?: string;
-  permission: Perm;
-  usage?: Usage;
-  split?: boolean;
-  restored?: boolean;
-  /** terminal tabs: pass --dangerously-skip-permissions so Claude never stops
-   * to ask (equivalent to "yes" / "yes, always" on every prompt) */
-  skipPermissions?: boolean;
-  /** terminal tabs: a dedicated claude session id so each tab restores its own
-   * conversation on restart — even when several tabs share one project folder.
-   * Absent on session-picker tabs (they attach to an externally chosen session)
-   * and on legacy tabs saved before this existed. */
-  termSession?: string;
-}
 interface Settings {
   lang: Lang;
   proxy: string;
 }
-
-const SITE_URL = "https://aminasaadi80.github.io/claude-for-linux/";
-
-const PERMS: { id: Perm; en: string; fa: string }[] = [
-  { id: "default", en: "Safe (ask)", fa: "امن (پرسش)" },
-  { id: "acceptEdits", en: "Accept edits", fa: "تأیید ویرایش‌ها" },
-  { id: "bypassPermissions", en: "Full access", fa: "دسترسی کامل" },
-];
 
 interface StreamPayload {
   id: string;
@@ -185,8 +135,6 @@ function App() {
   const [imgPreview, setImgPreview] = useState<string | null>(null);
   const [claudeVersion, setClaudeVersion] = useState<string | null>(null);
   const [appVersion, setAppVersion] = useState<string>("");
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editDraft, setEditDraft] = useState("");
   const { confirm: askConfirm, node: confirmNode } = useConfirm();
 
   const reqToTab = useRef<Record<string, string>>({});
@@ -202,10 +150,6 @@ function App() {
   langRef.current = lang;
   const askConfirmRef = useRef(askConfirm);
   askConfirmRef.current = askConfirm;
-  // pointer-based tab drag-reordering (HTML5 DnD is swallowed by Tauri's native
-  // file drag-drop handler on webkit, so we drive it ourselves with pointers)
-  const dragState = useRef<{ id: string; startX: number; moved: boolean } | null>(null);
-  const [dragId, setDragId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const loaded = useRef(false);
   const saveTimer = useRef<number | undefined>(undefined);
@@ -596,42 +540,6 @@ function App() {
       arr.splice(ti, 0, moved);
       return arr;
     });
-  const onTabPointerDown = (e: React.PointerEvent, id: string) => {
-    if (e.button !== 0 || editingId === id) return;
-    dragState.current = { id, startX: e.clientX, moved: false };
-  };
-  const onTabPointerMove = (e: React.PointerEvent) => {
-    const st = dragState.current;
-    if (!st) return;
-    if (!st.moved) {
-      if (Math.abs(e.clientX - st.startX) < 5) return; // small threshold = still a click
-      st.moved = true;
-      setDragId(st.id);
-      try {
-        e.currentTarget.setPointerCapture(e.pointerId);
-      } catch {
-        /* ignore */
-      }
-    }
-    const over = (document.elementFromPoint(e.clientX, e.clientY) as Element | null)?.closest(
-      "[data-tab-id]"
-    );
-    const overId = over?.getAttribute("data-tab-id");
-    if (overId && overId !== st.id) reorderLive(st.id, overId);
-  };
-  const onTabPointerUp = () => {
-    dragState.current = null;
-    setDragId(null);
-  };
-  const commitRename = () => {
-    const id = editingId;
-    if (id) {
-      const title = editDraft.trim();
-      setTabs((ts) => ts.map((tb) => (tb.id === id ? { ...tb, title: title || tb.title } : tb)));
-    }
-    setEditingId(null);
-  };
-
   const pickFolder = async () => {
     const selected = await open({
       directory: true,
@@ -715,12 +623,6 @@ function App() {
     if (reqId) invoke("code_stop", { requestId: reqId }).catch(() => {});
   };
 
-  const onKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      send();
-    }
-  };
   const clearChat = () => {
     if (busy) return;
     patchActive({ messages: [], sessionId: undefined, usage: undefined });
@@ -753,81 +655,22 @@ function App() {
         </div>
       </header>
 
-      <div className="tab-strip">
-        {tabs.map((tb) => (
-          <div
-            key={tb.id}
-            data-tab-id={tb.id}
-            className={`tab tab-${tb.kind} ${tb.id === activeId ? "active" : ""} ${dragId === tb.id ? "dragging" : ""}`}
-            onPointerDown={(e) => onTabPointerDown(e, tb.id)}
-            onPointerMove={onTabPointerMove}
-            onPointerUp={onTabPointerUp}
-            onClick={() => setActiveId(tb.id)}
-            onDoubleClick={() => {
-              setEditingId(tb.id);
-              setEditDraft(tb.title);
-            }}
-            title={tb.title}
-          >
-            <span className="tab-ico">
-              {tb.kind === "terminal"
-                ? "🖥"
-                : tb.kind === "git"
-                  ? "⎇"
-                  : tb.kind === "remote"
-                    ? "🌐"
-                    : tb.kind === "ssh"
-                      ? "🔐"
-                      : "💬"}
-            </span>
-            {editingId === tb.id ? (
-              <input
-                className="tab-edit"
-                autoFocus
-                value={editDraft}
-                onChange={(e) => setEditDraft(e.target.value)}
-                onClick={(e) => e.stopPropagation()}
-                onBlur={commitRename}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") commitRename();
-                  if (e.key === "Escape") setEditingId(null);
-                }}
-              />
-            ) : (
-              <span className="tab-title">{tb.title}</span>
-            )}
-            {tabs.length > 1 && (
-              <span
-                className="tab-close"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  closeTab(tb.id);
-                }}
-              >
-                ✕
-              </span>
-            )}
-          </div>
-        ))}
-        <button className="tab-add" onClick={() => addTerminalTab()} title={t.newTerm}>
-          🖥
-        </button>
-        <button className="tab-add" onClick={() => addTerminalTab(["--resume"])} title={t.resume}>
-          ↺
-        </button>
-        <button className="tab-add" onClick={addTab} title={t.newTab}>
-          💬
-        </button>
-        <button className="tab-add" onClick={addGitTab} title={t.newGit}>
-          ⎇
-        </button>
-        <button className="tab-add" onClick={addRemoteTab} title={t.newRemote}>
-          🌐
-        </button>
-        <button className="tab-add" onClick={addSshTab} title={t.newSsh}>
-          🔐
-        </button>
-      </div>
+      <TabStrip
+        tabs={tabs}
+        activeId={activeId}
+        lang={lang}
+        onSelect={setActiveId}
+        onClose={closeTab}
+        onRename={(id, title) =>
+          setTabs((ts) => ts.map((tb) => (tb.id === id ? { ...tb, title: title || tb.title } : tb)))
+        }
+        onReorder={reorderLive}
+        onAddChat={addTab}
+        onAddTerminal={addTerminalTab}
+        onAddGit={addGitTab}
+        onAddRemote={addRemoteTab}
+        onAddSsh={addSshTab}
+      />
 
       {/* terminal tabs stay mounted (hidden when inactive) so they keep running */}
       {tabs
@@ -944,118 +787,23 @@ function App() {
         ))}
 
       {activeTab?.kind === "chat" && (
-        <>
-          <div className="cwd-bar">
-            <label>{t.folder}</label>
-            <input
-              type="text"
-              placeholder={t.folderPick}
-              value={activeTab?.cwd ?? ""}
-              readOnly
-              onClick={pickFolder}
-              style={{ cursor: "pointer" }}
-            />
-            <button className="browse-btn" onClick={pickFolder} title={t.choose}>
-              📁
-            </button>
-            <button className="browse-btn" onClick={openTerminal} title={t.terminal}>
-              🖥
-            </button>
-            <button
-              className={`browse-btn ${activeTab.split ? "on" : ""}`}
-              onClick={() => patchActive({ split: !activeTab.split })}
-              title={t.split}
-            >
-              ⊟
-            </button>
-            {activeTab?.cwd && (
-              <button className="browse-btn" onClick={() => patchActive({ cwd: "" })} title={t.clearField}>
-                ✕
-              </button>
-            )}
-            <select
-              className="perm-select"
-              value={activeTab?.permission ?? "default"}
-              onChange={(e) => patchActive({ permission: e.target.value as Perm })}
-              title={t.perm}
-            >
-              {PERMS.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {lang === "fa" ? p.fa : p.en}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className={`chat-body ${activeTab.split ? "split" : ""}`}>
-            <div className="chat-col">
-              <div className="messages" ref={scrollRef}>
-                {messages.length === 0 && <div className="empty">{t.empty}</div>}
-                {messages.map((m, i) =>
-                  m.kind === "tool" ? (
-                    <div key={i} className="tool-line">
-                      <span className="tool-ico">🔧</span>
-                      {m.content}
-                    </div>
-                  ) : (
-                    <div key={i} className={`msg ${m.role} ${m.error ? "err" : ""}`}>
-                      <div className="avatar">{m.role === "user" ? "🧑" : "✳"}</div>
-                      <div className="bubble">
-                        {m.role === "assistant" && m.content ? (
-                          <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
-                            {m.content}
-                          </ReactMarkdown>
-                        ) : (
-                          m.content
-                        )}
-                        {m.streaming && <span className="cursor">▍</span>}
-                      </div>
-                      {m.content && !m.streaming && (
-                        <button className="copy-btn" onClick={() => copyMsg(m.content)} title={t.copy}>
-                          ⧉
-                        </button>
-                      )}
-                    </div>
-                  )
-                )}
-              </div>
-
-              {imgPreview && (
-                <div className="img-preview">
-                  <img src={convertFileSrc(imgPreview)} alt="" />
-                  <span className="rm" onClick={() => setImgPreview(null)}>
-                    ✕
-                  </span>
-                </div>
-              )}
-
-              <div className="composer">
-                <textarea
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={onKeyDown}
-                  placeholder={t.ph}
-                  rows={1}
-                />
-                {busy ? (
-                  <button className="stop-btn" onClick={stop}>
-                    ⏹ {t.stop}
-                  </button>
-                ) : (
-                  <button onClick={send} disabled={!input.trim()}>
-                    {t.send}
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {activeTab.split && (
-              <div className="split-term">
-                <TerminalView termId={`${activeTab.id}:split`} cwd={activeTab.cwd} fontSize={fontSize} />
-              </div>
-            )}
-          </div>
-        </>
+        <ChatView
+          tab={activeTab}
+          lang={lang}
+          fontSize={fontSize}
+          input={input}
+          imgPreview={imgPreview}
+          busy={busy}
+          scrollRef={scrollRef}
+          onInputChange={setInput}
+          onSend={send}
+          onStop={stop}
+          onPickFolder={pickFolder}
+          onOpenTerminal={openTerminal}
+          onPatchTab={patchActive}
+          onCopyMsg={copyMsg}
+          onClearImgPreview={() => setImgPreview(null)}
+        />
       )}
 
       <div className="statusbar">
@@ -1070,89 +818,20 @@ function App() {
       </div>
 
       {showSettings && (
-        <div className="modal-backdrop" onClick={() => setShowSettings(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h2>{t.settings}</h2>
-
-            <label>{t.language}</label>
-            <div className="lang-switch">
-              <button className={lang === "en" ? "active" : ""} onClick={() => setLang("en")}>
-                English
-              </button>
-              <button className={lang === "fa" ? "active" : ""} onClick={() => setLang("fa")}>
-                فارسی
-              </button>
-            </div>
-
-            <label style={{ marginTop: 14 }}>{t.theme}</label>
-            <div className="lang-switch">
-              <button className={theme === "dark" ? "active" : ""} onClick={() => setThemeState("dark")}>
-                {t.dark}
-              </button>
-              <button className={theme === "light" ? "active" : ""} onClick={() => setThemeState("light")}>
-                {t.light}
-              </button>
-            </div>
-
-            <label style={{ marginTop: 14 }}>
-              {t.fontSize}: {fontSize}px
-            </label>
-            <input
-              type="range"
-              min={11}
-              max={20}
-              value={fontSize}
-              onChange={(e) => setFontSizeState(Number(e.target.value))}
-              style={{ width: "100%" }}
-            />
-
-            <label style={{ marginTop: 14 }}>{t.proxy}</label>
-            <div className="proxy-row">
-              <input
-                type="text"
-                value={proxyDraft}
-                onChange={(e) => setProxyDraft(e.target.value)}
-                onBlur={saveProxy}
-                placeholder="127.0.0.1:8080"
-              />
-              <button onClick={saveProxy} disabled={proxyDraft.trim() === settings.proxy}>
-                {proxyDraft.trim() === settings.proxy ? t.proxySaved : t.proxySave}
-              </button>
-            </div>
-            <p className="hint">{t.proxyHint}</p>
-
-            <p className="hint" style={{ marginTop: 14 }}>
-              {t.cliHint}
-            </p>
-            <div className="about">
-              <span className="about-label">{t.about}</span>
-              <div className="about-row">
-                <span>
-                  {t.version} <b>{appVersion || "—"}</b>
-                </span>
-              </div>
-              <div className="about-row">
-                <span>
-                  {t.madeBy} <b>{t.creator}</b>
-                </span>
-                <a className="about-link" onClick={() => openUrl("https://aminasaadi.ir")}>
-                  aminasaadi.ir
-                </a>
-              </div>
-              <div className="about-row">
-                <span>{t.website}</span>
-                <a className="about-link" onClick={() => openUrl(SITE_URL)}>
-                  aminasaadi80.github.io/claude-for-linux
-                </a>
-              </div>
-            </div>
-            <div className="modal-actions">
-              <button className="primary" onClick={() => setShowSettings(false)}>
-                {t.cancel}
-              </button>
-            </div>
-          </div>
-        </div>
+        <SettingsModal
+          lang={lang}
+          theme={theme}
+          fontSize={fontSize}
+          proxyDraft={proxyDraft}
+          savedProxy={settings.proxy}
+          appVersion={appVersion}
+          onClose={() => setShowSettings(false)}
+          onSetLang={setLang}
+          onSetTheme={setThemeState}
+          onSetFontSize={setFontSizeState}
+          onProxyDraftChange={setProxyDraft}
+          onSaveProxy={saveProxy}
+        />
       )}
 
       {confirmNode}
