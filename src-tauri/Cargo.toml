@@ -1,6 +1,6 @@
 [package]
 name = "claude-linux"
-version = "0.5.19"
+version = "0.5.20"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
@@ -31,4 +31,6 @@ base64 = "0.22"
 ssh2 = { version = "0.9", features = ["vendored-openssl"] }
 # FTP / FTPS
 suppaftp = { version = "6", features = ["native-tls"] }
+# OS keyring (Secret Service / gnome-keyring) for SSH/FTP passwords — pure-rust dbus
+keyring = { version = "3", features = ["sync-secret-service"] }
 

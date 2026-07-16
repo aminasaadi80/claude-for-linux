@@ -9,6 +9,7 @@ mod git;
 mod proxy;
 mod pty;
 mod remote;
+mod secrets;
 mod settings;
 mod sys;
 mod util;
@@ -27,6 +28,9 @@ pub fn run() {
             settings::save_settings,
             settings::load_session,
             settings::save_session,
+            secrets::secret_set,
+            secrets::secret_get,
+            secrets::secret_delete,
             claude::claude_check,
             claude::code_send,
             claude::code_stop,

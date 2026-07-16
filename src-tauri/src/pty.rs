@@ -15,7 +15,7 @@ use tauri::{AppHandle, Emitter, State};
 
 use crate::proxy::ssh_proxy_command;
 use crate::settings::proxy_url;
-use crate::util::{augmented_path, claude_binary, which};
+use crate::util::{augmented_path, claude_binary};
 
 struct PtySession {
     master: Box<dyn MasterPty + Send>,
@@ -157,8 +157,8 @@ pub(crate) struct SshCreds {
     host: String,
     port: u16,
     username: String,
-    /// optional password (used via `sshpass` when available; otherwise ssh will
-    /// prompt for it interactively inside the terminal)
+    /// optional password, handed to ssh through an SSH_ASKPASS helper (never on
+    /// a command line); empty = ssh prompts interactively inside the terminal
     password: Option<String>,
     /// optional private key file
     key_path: Option<String>,
@@ -166,6 +166,21 @@ pub(crate) struct SshCreds {
     /// "http://127.0.0.1:8080" or "socks5://127.0.0.1:1080". Separate from the
     /// app proxy — routed through SSH's ProxyCommand (needs `nc`/netcat).
     proxy: Option<String>,
+}
+
+/// Write (idempotently) the tiny askpass script that echoes the password ssh
+/// asks for from the environment, and return its path. User-only (0700).
+fn askpass_helper() -> Result<String, String> {
+    let path = crate::settings::config_file("askpass.sh");
+    let script = "#!/bin/sh\n# claude-linux: hands the SSH password from the environment to ssh(1).\nprintf '%s\\n' \"$CLAUDE_SSH_ASKPASS_PW\"\n";
+    std::fs::write(&path, script).map_err(|e| e.to_string())?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700))
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(path.to_string_lossy().into_owned())
 }
 
 #[tauri::command]
@@ -182,27 +197,26 @@ pub(crate) fn ssh_open(
         .openpty(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
         .map_err(|e| e.to_string())?;
 
-    // Use sshpass when a password is given and the tool exists; otherwise ssh
-    // asks for the password interactively (works fine inside the PTY).
-    let use_sshpass = creds
-        .password
-        .as_deref()
-        .map(|s| !s.is_empty())
-        .unwrap_or(false)
-        && which("sshpass");
+    let mut cmd = CommandBuilder::new("ssh");
 
-    let mut cmd = if use_sshpass {
-        let mut c = CommandBuilder::new("sshpass");
-        c.arg("-p");
-        c.arg(creds.password.as_deref().unwrap_or(""));
-        c.arg("ssh");
-        c
-    } else {
-        CommandBuilder::new("ssh")
-    };
+    // Password auth WITHOUT sshpass: OpenSSH (≥8.4) reads the password from an
+    // askpass helper when SSH_ASKPASS_REQUIRE=force. The password travels in
+    // the child's environment — unlike `sshpass -p <pw>`, it never appears on a
+    // command line where every local process can read it out of `ps`/proc.
+    // On older ssh the vars are ignored and ssh simply prompts in the terminal.
+    if let Some(pw) = creds.password.as_deref().filter(|s| !s.is_empty()) {
+        let helper = askpass_helper()?;
+        cmd.env("SSH_ASKPASS", helper);
+        cmd.env("SSH_ASKPASS_REQUIRE", "force");
+        cmd.env("CLAUDE_SSH_ASKPASS_PW", pw);
+        // ssh refuses askpass without a DISPLAY, even in force mode
+        if std::env::var("DISPLAY").is_err() {
+            cmd.env("DISPLAY", ":0");
+        }
+    }
 
     cmd.env("TERM", "xterm-256color");
-    cmd.env("PATH", augmented_path()); // so `nc`/`sshpass` (proxy/password) are found
+    cmd.env("PATH", augmented_path()); // so `nc` (proxy) is found
     // NOTE: intentionally NOT injecting the app proxy here — SSH proxying is
     // per-connection and handled below via ProxyCommand.
     cmd.arg("-tt"); // force a PTY on the remote even through ProxyCommand

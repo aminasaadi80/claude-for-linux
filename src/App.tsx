@@ -26,6 +26,34 @@ interface Settings {
   proxy: string;
 }
 
+// ---- OS-keyring keys for connection secrets (passwords never touch disk) ----
+const sshSecretKey = (c: SshConfig) => `ssh:${c.username}@${c.host}:${c.port}`;
+const remoteSecretKey = (c: RemoteConfig) => `${c.protocol}:${c.username}@${c.host}:${c.port}`;
+
+/** Merge an SSH config's password back in from the keyring (no-op if absent). */
+async function withSshSecret(c: SshConfig): Promise<SshConfig> {
+  if (!c.host || c.password) return c;
+  try {
+    const pw = await invoke<string | null>("secret_get", { key: sshSecretKey(c) });
+    return pw ? { ...c, password: pw } : c;
+  } catch {
+    return c;
+  }
+}
+
+/** Merge an SFTP/FTP config's password+passphrase back in from the keyring. */
+async function withRemoteSecret(c: RemoteConfig): Promise<RemoteConfig> {
+  if (!c.host || c.password || c.passphrase) return c;
+  try {
+    const raw = await invoke<string | null>("secret_get", { key: remoteSecretKey(c) });
+    if (!raw) return c;
+    const s = JSON.parse(raw) as { password?: string; passphrase?: string };
+    return { ...c, password: s.password ?? "", passphrase: s.passphrase ?? "" };
+  } catch {
+    return c;
+  }
+}
+
 interface StreamPayload {
   id: string;
   text: string;
@@ -186,16 +214,27 @@ function App() {
         if (raw) {
           const data = JSON.parse(raw);
           if (Array.isArray(data.tabs) && data.tabs.length) {
-            setTabs(
-              data.tabs.map((tb: Tab) => ({
-                ...tb,
-                kind: tb.kind ?? "chat",
-                permission: tb.permission ?? "default",
-                restored: tb.kind === "terminal" ? true : undefined,
-              }))
-            );
+            const restored: Tab[] = data.tabs.map((tb: Tab) => ({
+              ...tb,
+              kind: tb.kind ?? "chat",
+              permission: tb.permission ?? "default",
+              restored: tb.kind === "terminal" ? true : undefined,
+            }));
+            setTabs(restored);
             if (data.activeId) setActiveId(data.activeId);
             if (typeof data.counter === "number") tabCounter = data.counter;
+            // session.json never contains secrets — re-attach passwords for the
+            // restored connection drafts from the OS keyring, asynchronously
+            Promise.all(
+              restored.map(async (tb) => {
+                if (tb.kind === "ssh" && tb.ssh) return { ...tb, ssh: await withSshSecret(tb.ssh) };
+                if (tb.kind === "remote" && tb.remote)
+                  return { ...tb, remote: await withRemoteSecret(tb.remote) };
+                return tb;
+              })
+            )
+              .then(setTabs)
+              .catch(() => {});
           }
         }
       })
@@ -205,6 +244,52 @@ function App() {
       });
   }, []);
 
+  // one-time migration: move plaintext passwords saved by pre-keyring versions
+  // out of localStorage into the OS keyring
+  useEffect(() => {
+    (async () => {
+      let sshChanged = false;
+      const ssh = await Promise.all(
+        savedSsh.map(async (c) => {
+          if (!c.password) return c;
+          try {
+            await invoke("secret_set", { key: sshSecretKey(c), value: c.password });
+            sshChanged = true;
+            return { ...c, password: "" };
+          } catch {
+            return c;
+          }
+        })
+      );
+      if (sshChanged) {
+        setSavedSsh(ssh);
+        localStorage.setItem("savedSshServers", JSON.stringify(ssh));
+      }
+      let rmtChanged = false;
+      const rmt = await Promise.all(
+        savedRemotes.map(async (c) => {
+          if (!c.password && !c.passphrase) return c;
+          try {
+            await invoke("secret_set", {
+              key: remoteSecretKey(c),
+              value: JSON.stringify({ password: c.password ?? "", passphrase: c.passphrase ?? "" }),
+            });
+            rmtChanged = true;
+            return { ...c, password: "", passphrase: "" };
+          } catch {
+            return c;
+          }
+        })
+      );
+      if (rmtChanged) {
+        setSavedRemotes(rmt);
+        localStorage.setItem("savedRemotes", JSON.stringify(rmt));
+      }
+    })();
+    // runs once against the values loaded from localStorage at startup
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // auto-save (disk → survives app & system restart)
   useEffect(() => {
     if (!loaded.current) return;
@@ -212,7 +297,13 @@ function App() {
     saveTimer.current = window.setTimeout(() => {
       const sanitized = tabs.map((tb) => {
         const { restored: _r, ...rest } = tb;
-        return { ...rest, messages: tb.messages.map((m) => ({ ...m, streaming: false })) };
+        return {
+          ...rest,
+          // connection secrets live in the OS keyring, never in session.json
+          ...(rest.ssh ? { ssh: { ...rest.ssh, password: "" } } : {}),
+          ...(rest.remote ? { remote: { ...rest.remote, password: "", passphrase: "" } } : {}),
+          messages: tb.messages.map((m) => ({ ...m, streaming: false })),
+        };
       });
       invoke("save_session", {
         data: JSON.stringify({ tabs: sanitized, activeId, counter: tabCounter }),
@@ -477,15 +568,29 @@ function App() {
   const setTabRemote = (id: string, remote: RemoteConfig) =>
     setTabs((ts) => ts.map((tb) => (tb.id === id ? { ...tb, remote } : tb)));
   const remoteKey = (c: RemoteConfig) => `${c.protocol}|${c.host}|${c.port}|${c.username}`;
-  const saveRemote = (cfg: RemoteConfig) => {
+  const saveRemote = async (cfg: RemoteConfig) => {
+    let toStore = cfg;
+    if (cfg.password || cfg.passphrase) {
+      try {
+        // secrets go to the OS keyring; the chip list keeps only the address
+        await invoke("secret_set", {
+          key: remoteSecretKey(cfg),
+          value: JSON.stringify({ password: cfg.password ?? "", passphrase: cfg.passphrase ?? "" }),
+        });
+        toStore = { ...cfg, password: "", passphrase: "" };
+      } catch {
+        /* keyring unavailable — fall back to the pre-keyring behavior */
+      }
+    }
     setSavedRemotes((prev) => {
       // de-dupe by protocol/host/user; password is not stored in the chip key
-      const next = [cfg, ...prev.filter((c) => remoteKey(c) !== remoteKey(cfg))].slice(0, 20);
+      const next = [toStore, ...prev.filter((c) => remoteKey(c) !== remoteKey(cfg))].slice(0, 20);
       localStorage.setItem("savedRemotes", JSON.stringify(next));
       return next;
     });
   };
   const deleteRemote = (cfg: RemoteConfig) => {
+    invoke("secret_delete", { key: remoteSecretKey(cfg) }).catch(() => {});
     setSavedRemotes((prev) => {
       const next = prev.filter((c) => remoteKey(c) !== remoteKey(cfg));
       localStorage.setItem("savedRemotes", JSON.stringify(next));
@@ -500,15 +605,25 @@ function App() {
   const setTabSsh = (id: string, ssh: SshConfig) =>
     setTabs((ts) => ts.map((tb) => (tb.id === id ? { ...tb, ssh } : tb)));
   const sshKey = (c: SshConfig) => `${c.host}|${c.port}|${c.username}`;
-  const saveSshServer = (cfg: SshConfig) => {
+  const saveSshServer = async (cfg: SshConfig) => {
     if (!cfg.host.trim()) return;
+    let toStore = cfg;
+    if (cfg.password) {
+      try {
+        await invoke("secret_set", { key: sshSecretKey(cfg), value: cfg.password });
+        toStore = { ...cfg, password: "" };
+      } catch {
+        /* keyring unavailable — fall back to the pre-keyring behavior */
+      }
+    }
     setSavedSsh((prev) => {
-      const next = [cfg, ...prev.filter((c) => sshKey(c) !== sshKey(cfg))].slice(0, 20);
+      const next = [toStore, ...prev.filter((c) => sshKey(c) !== sshKey(cfg))].slice(0, 20);
       localStorage.setItem("savedSshServers", JSON.stringify(next));
       return next;
     });
   };
   const deleteSshServer = (cfg: SshConfig) => {
+    invoke("secret_delete", { key: sshSecretKey(cfg) }).catch(() => {});
     setSavedSsh((prev) => {
       const next = prev.filter((c) => sshKey(c) !== sshKey(cfg));
       localStorage.setItem("savedSshServers", JSON.stringify(next));
@@ -762,7 +877,7 @@ function App() {
               onConfigChange={(c) => setTabRemote(tb.id, c)}
               onSaveConnection={saveRemote}
               onDeleteConnection={deleteRemote}
-              onUseSaved={(c) => setTabRemote(tb.id, c)}
+              onUseSaved={(c) => withRemoteSecret(c).then((full) => setTabRemote(tb.id, full))}
             />
           </div>
         ))}
@@ -781,7 +896,7 @@ function App() {
               onConfigChange={(c) => setTabSsh(tb.id, c)}
               onSaveConnection={saveSshServer}
               onDeleteConnection={deleteSshServer}
-              onUseSaved={(c) => setTabSsh(tb.id, c)}
+              onUseSaved={(c) => withSshSecret(c).then((full) => setTabSsh(tb.id, full))}
             />
           </div>
         ))}
