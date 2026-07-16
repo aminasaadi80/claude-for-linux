@@ -1,6 +1,6 @@
 [package]
 name = "claude-linux"
-version = "0.5.21"
+version = "0.5.22"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
@@ -31,6 +31,13 @@ base64 = "0.22"
 ssh2 = { version = "0.9", features = ["vendored-openssl"] }
 # FTP / FTPS
 suppaftp = { version = "6", features = ["native-tls"] }
-# OS keyring (Secret Service / gnome-keyring) for SSH/FTP passwords — pure-rust dbus
+# OS keyring for SSH/FTP passwords — the store is platform-specific:
+# Linux = Secret Service (gnome-keyring/KWallet), macOS = the system Keychain.
+# Without the right per-platform feature, keyring silently falls back to an
+# in-memory mock store and "saved" passwords vanish on restart.
+[target.'cfg(target_os = "linux")'.dependencies]
 keyring = { version = "3", features = ["sync-secret-service"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3", features = ["apple-native"] }
 
