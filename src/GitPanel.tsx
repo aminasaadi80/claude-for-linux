@@ -216,7 +216,9 @@ export default function GitPanel({ cwd, lang, proxy }: { cwd: string; lang: Lang
               title={t.discard}
               onClick={async (e) => {
                 e.stopPropagation();
-                if (await confirm(t.discardConfirm(f.path), { ok: t.discard, cancel: t.cancel, danger: true }))
+                if (
+                  await confirm(t.discardConfirm(f.path), { ok: t.discard, cancel: t.cancel, danger: true })
+                )
                   run(() => invoke("git_discard", { cwd, path: f.path, untracked: f.untracked }));
               }}
             >
@@ -280,13 +282,25 @@ export default function GitPanel({ cwd, lang, proxy }: { cwd: string; lang: Lang
           </span>
         )}
         <span className="git-spacer" />
-        <button className="git-btn" disabled={busy} onClick={() => run(() => invoke("git_fetch", { cwd, proxy }))}>
+        <button
+          className="git-btn"
+          disabled={busy}
+          onClick={() => run(() => invoke("git_fetch", { cwd, proxy }))}
+        >
           ⟳ {t.fetch}
         </button>
-        <button className="git-btn" disabled={busy} onClick={() => run(() => invoke("git_pull", { cwd, proxy }))}>
+        <button
+          className="git-btn"
+          disabled={busy}
+          onClick={() => run(() => invoke("git_pull", { cwd, proxy }))}
+        >
           ↓ {t.pull}
         </button>
-        <button className="git-btn" disabled={busy} onClick={() => run(() => invoke("git_push", { cwd, proxy }), t.done)}>
+        <button
+          className="git-btn"
+          disabled={busy}
+          onClick={() => run(() => invoke("git_push", { cwd, proxy }), t.done)}
+        >
           ↑ {t.push}
         </button>
         <button className="git-btn" disabled={busy} onClick={refresh} title={t.refresh}>
@@ -298,9 +312,15 @@ export default function GitPanel({ cwd, lang, proxy }: { cwd: string; lang: Lang
         {/* left: changes + commit */}
         <div className="git-left">
           <div className="git-section-head">
-            <span>{t.staged} ({staged.length})</span>
+            <span>
+              {t.staged} ({staged.length})
+            </span>
             {staged.length > 0 && (
-              <button className="git-link" disabled={busy} onClick={() => run(() => invoke("git_unstage_all", { cwd }))}>
+              <button
+                className="git-link"
+                disabled={busy}
+                onClick={() => run(() => invoke("git_unstage_all", { cwd }))}
+              >
                 {t.unstageAll}
               </button>
             )}
@@ -308,9 +328,15 @@ export default function GitPanel({ cwd, lang, proxy }: { cwd: string; lang: Lang
           <div className="git-list">{staged.map((f) => fileRow(f, true))}</div>
 
           <div className="git-section-head">
-            <span>{t.unstaged} ({unstaged.length})</span>
+            <span>
+              {t.unstaged} ({unstaged.length})
+            </span>
             {unstaged.length > 0 && (
-              <button className="git-link" disabled={busy} onClick={() => run(() => invoke("git_stage_all", { cwd }))}>
+              <button
+                className="git-link"
+                disabled={busy}
+                onClick={() => run(() => invoke("git_stage_all", { cwd }))}
+              >
                 {t.stageAll}
               </button>
             )}
@@ -369,18 +395,18 @@ export default function GitPanel({ cwd, lang, proxy }: { cwd: string; lang: Lang
                 </button>
               </div>
               <pre className="git-diff">
-              {diff.split("\n").map((ln, i) => {
-                let cls = "";
-                if (ln.startsWith("+") && !ln.startsWith("+++")) cls = "add";
-                else if (ln.startsWith("-") && !ln.startsWith("---")) cls = "del";
-                else if (ln.startsWith("@@")) cls = "hunk";
-                else if (ln.startsWith("diff ") || ln.startsWith("index ")) cls = "meta";
-                return (
-                  <div key={i} className={`git-dl ${cls}`}>
-                    {ln || " "}
-                  </div>
-                );
-              })}
+                {diff.split("\n").map((ln, i) => {
+                  let cls = "";
+                  if (ln.startsWith("+") && !ln.startsWith("+++")) cls = "add";
+                  else if (ln.startsWith("-") && !ln.startsWith("---")) cls = "del";
+                  else if (ln.startsWith("@@")) cls = "hunk";
+                  else if (ln.startsWith("diff ") || ln.startsWith("index ")) cls = "meta";
+                  return (
+                    <div key={i} className={`git-dl ${cls}`}>
+                      {ln || " "}
+                    </div>
+                  );
+                })}
               </pre>
             </>
           ) : (

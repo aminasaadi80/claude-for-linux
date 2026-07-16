@@ -295,7 +295,11 @@ export default function RemotePanel({
     const name = baseName(src);
     setBusy(true);
     try {
-      await invoke("remote_upload", { connId, localPath: src, remotePath: cwd === "/" ? `/${name}` : `${cwd}/${name}` });
+      await invoke("remote_upload", {
+        connId,
+        localPath: src,
+        remotePath: cwd === "/" ? `/${name}` : `${cwd}/${name}`,
+      });
       flash(`${t.uploaded}: ${name}`);
       await listDir(cwd);
     } catch (e) {
@@ -378,9 +382,7 @@ export default function RemotePanel({
       y: e.clientY,
       label: `${st.file.is_dir ? "📁" : "📄"} ${st.file.name}`,
     });
-    const pane = (document.elementFromPoint(e.clientX, e.clientY) as Element | null)?.closest(
-      "[data-pane]"
-    );
+    const pane = (document.elementFromPoint(e.clientX, e.clientY) as Element | null)?.closest("[data-pane]");
     const p = (pane?.getAttribute("data-pane") ?? null) as "local" | "remote" | null;
     const tgt = p && p !== st.source ? p : null;
     dropRef.current = tgt;
@@ -407,7 +409,10 @@ export default function RemotePanel({
     if (!name || !name.trim()) return;
     setBusy(true);
     try {
-      await invoke("remote_mkdir", { connId, path: cwd === "/" ? `/${name.trim()}` : `${cwd}/${name.trim()}` });
+      await invoke("remote_mkdir", {
+        connId,
+        path: cwd === "/" ? `/${name.trim()}` : `${cwd}/${name.trim()}`,
+      });
       await listDir(cwd);
     } catch (e) {
       flash(String(e));
@@ -455,7 +460,11 @@ export default function RemotePanel({
               <div className="rmt-saved-list">
                 {saved.map((s, i) => (
                   <span key={i} className="rmt-chip-wrap">
-                    <button className="rmt-chip" onClick={() => onUseSaved(s)} title={`${s.protocol}://${s.username ? `${s.username}@` : ""}${s.host}`}>
+                    <button
+                      className="rmt-chip"
+                      onClick={() => onUseSaved(s)}
+                      title={`${s.protocol}://${s.username ? `${s.username}@` : ""}${s.host}`}
+                    >
                       🌐 {label(s)}
                     </button>
                     <button
@@ -482,7 +491,11 @@ export default function RemotePanel({
 
           <div className="rmt-row">
             <label>{t.name}</label>
-            <input value={config.name ?? ""} onChange={(e) => set({ name: e.target.value })} placeholder={t.namePh} />
+            <input
+              value={config.name ?? ""}
+              onChange={(e) => set({ name: e.target.value })}
+              placeholder={t.namePh}
+            />
           </div>
           <div className="rmt-row">
             <label>{t.protocol}</label>
@@ -500,7 +513,11 @@ export default function RemotePanel({
           </div>
           <div className="rmt-row">
             <label>{t.host}</label>
-            <input value={config.host} onChange={(e) => set({ host: e.target.value })} placeholder="example.com" />
+            <input
+              value={config.host}
+              onChange={(e) => set({ host: e.target.value })}
+              placeholder="example.com"
+            />
             <label className="rmt-port-l">{t.port}</label>
             <input
               className="rmt-port"
@@ -572,7 +589,11 @@ export default function RemotePanel({
           </div>
           <div className="rmt-row">
             <label>{t.proxy}</label>
-            <input value={config.proxy ?? ""} onChange={(e) => set({ proxy: e.target.value })} placeholder={t.proxyPh} />
+            <input
+              value={config.proxy ?? ""}
+              onChange={(e) => set({ proxy: e.target.value })}
+              placeholder={t.proxyPh}
+            />
           </div>
           <p className="hint" style={{ margin: "2px 0 0" }}>
             {t.proxyHint}
@@ -631,7 +652,11 @@ export default function RemotePanel({
             </>
           ) : (
             !f.is_dir && (
-              <button className="rmt-mini" title={t.uploadThis} onClick={() => uploadLocalFile(f.path, f.name)}>
+              <button
+                className="rmt-mini"
+                title={t.uploadThis}
+                onClick={() => uploadLocalFile(f.path, f.name)}
+              >
                 ⬆
               </button>
             )

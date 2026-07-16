@@ -61,10 +61,7 @@ export function useConfirm() {
   const resolver = useRef<((v: boolean) => void) | null>(null);
 
   const confirm = useCallback(
-    (
-      message: string,
-      opts?: { ok?: string; cancel?: string; danger?: boolean }
-    ): Promise<boolean> => {
+    (message: string, opts?: { ok?: string; cancel?: string; danger?: boolean }): Promise<boolean> => {
       setState({
         message,
         ok: opts?.ok ?? "✓",

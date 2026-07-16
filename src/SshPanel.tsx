@@ -150,7 +150,9 @@ export default function SshPanel({
                       className="rmt-chip-del"
                       title={t.del}
                       onClick={async () => {
-                        if (await confirm(t.delConfirm(label(s)), { ok: t.del, cancel: t.cancel, danger: true }))
+                        if (
+                          await confirm(t.delConfirm(label(s)), { ok: t.del, cancel: t.cancel, danger: true })
+                        )
                           onDeleteConnection(s);
                       }}
                     >
@@ -164,11 +166,19 @@ export default function SshPanel({
 
           <div className="rmt-row">
             <label>{t.name}</label>
-            <input value={config.name ?? ""} onChange={(e) => set({ name: e.target.value })} placeholder={t.namePh} />
+            <input
+              value={config.name ?? ""}
+              onChange={(e) => set({ name: e.target.value })}
+              placeholder={t.namePh}
+            />
           </div>
           <div className="rmt-row">
             <label>{t.host}</label>
-            <input value={config.host} onChange={(e) => set({ host: e.target.value })} placeholder="example.com" />
+            <input
+              value={config.host}
+              onChange={(e) => set({ host: e.target.value })}
+              placeholder="example.com"
+            />
             <label className="rmt-port-l">{t.port}</label>
             <input
               className="rmt-port"
@@ -179,7 +189,11 @@ export default function SshPanel({
           </div>
           <div className="rmt-row">
             <label>{t.user}</label>
-            <input value={config.username} onChange={(e) => set({ username: e.target.value })} placeholder="root" />
+            <input
+              value={config.username}
+              onChange={(e) => set({ username: e.target.value })}
+              placeholder="root"
+            />
           </div>
           <div className="rmt-row">
             <label>{t.password}</label>
@@ -210,7 +224,11 @@ export default function SshPanel({
           </div>
           <div className="rmt-row">
             <label>{t.proxy}</label>
-            <input value={config.proxy ?? ""} onChange={(e) => set({ proxy: e.target.value })} placeholder={t.proxyPh} />
+            <input
+              value={config.proxy ?? ""}
+              onChange={(e) => set({ proxy: e.target.value })}
+              placeholder={t.proxyPh}
+            />
           </div>
           <p className="hint" style={{ margin: "2px 0 0" }}>
             {t.proxyHint}

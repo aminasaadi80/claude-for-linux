@@ -3,6 +3,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { WebLinksAddon } from "@xterm/addon-web-links";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import "@xterm/xterm/css/xterm.css";
 
 function b64ToBytes(b64: string): Uint8Array {
@@ -68,6 +70,8 @@ export default function TerminalView({
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
+    // clickable URLs — open in the system browser (window.open is a no-op in the webview)
+    term.loadAddon(new WebLinksAddon((_e, uri) => void openUrl(uri).catch(() => {})));
     term.open(hostRef.current!);
     fit.fit();
 
@@ -201,6 +205,9 @@ export default function TerminalView({
       invoke("pty_close", { termId }).catch(() => {});
       term.dispose();
     };
+    // the terminal must only remount on termId — cwd/args/ssh changes are
+    // delivered by the parent remounting us with a new key instead
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [termId]);
 
   return <div className={`xterm-host${flush ? " flush" : ""}`} ref={hostRef} />;

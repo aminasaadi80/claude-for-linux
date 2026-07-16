@@ -482,6 +482,7 @@ fn claude_session_file(cwd: &str, session_id: &str) -> Option<std::path::PathBuf
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)] // tauri commands mirror the frontend call shape
 fn pty_open(
     app: AppHandle,
     state: State<PtyState>,
@@ -1153,7 +1154,7 @@ fn connect_via_proxy(proxy: &str, target_host: &str, target_port: u16) -> std::i
 }
 
 fn io_err(msg: impl Into<String>) -> std::io::Error {
-    std::io::Error::new(std::io::ErrorKind::Other, msg.into())
+    std::io::Error::other(msg.into())
 }
 
 fn http_connect(s: &mut TcpStream, host: &str, port: u16) -> std::io::Result<()> {

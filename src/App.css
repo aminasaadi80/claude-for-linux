@@ -1157,7 +1157,9 @@ body,
   flex-direction: column;
   border: 2px solid transparent;
   border-radius: 6px;
-  transition: border-color 0.12s, background-color 0.12s;
+  transition:
+    border-color 0.12s,
+    background-color 0.12s;
 }
 .rmt-pane + .rmt-pane {
   border-inline-start: 1px solid var(--border);

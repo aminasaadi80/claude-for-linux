@@ -6,11 +6,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { getVersion } from "@tauri-apps/api/app";
-import {
-  isPermissionGranted,
-  requestPermission,
-  sendNotification,
-} from "@tauri-apps/plugin-notification";
+import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
@@ -105,7 +101,8 @@ const STR = {
     tabSsh: (n: number) => `SSH ${n}`,
     closeConfirm: (title: string) => `Close "${title}"?`,
     autoYes: "Auto-approve",
-    autoYesHint: "Answer yes to every permission prompt (--dangerously-skip-permissions). Restarts this terminal.",
+    autoYesHint:
+      "Answer yes to every permission prompt (--dangerously-skip-permissions). Restarts this terminal.",
     folder: "Project folder:",
     folderPick: "Click to choose… (empty = current folder)",
     choose: "Choose folder",
@@ -165,7 +162,8 @@ const STR = {
     tabSsh: (n: number) => `SSH ${n}`,
     closeConfirm: (title: string) => `«${title}» بسته شود؟`,
     autoYes: "تأیید خودکار",
-    autoYesHint: "بله به همه‌ی درخواست‌های اجازه (--dangerously-skip-permissions). ترمینال را ری‌استارت می‌کند.",
+    autoYesHint:
+      "بله به همه‌ی درخواست‌های اجازه (--dangerously-skip-permissions). ترمینال را ری‌استارت می‌کند.",
     folder: "پوشه‌ی پروژه:",
     folderPick: "برای انتخاب کلیک کن… (خالی = پوشه‌ی فعلی)",
     choose: "انتخاب پوشه",
@@ -290,12 +288,8 @@ function App() {
   const t = STR[lang];
   const [proxyDraft, setProxyDraft] = useState("");
 
-  const [theme, setThemeState] = useState<Theme>(
-    () => (localStorage.getItem("theme") as Theme) || "dark"
-  );
-  const [fontSize, setFontSizeState] = useState<number>(
-    () => Number(localStorage.getItem("fontSize")) || 14
-  );
+  const [theme, setThemeState] = useState<Theme>(() => (localStorage.getItem("theme") as Theme) || "dark");
+  const [fontSize, setFontSizeState] = useState<number>(() => Number(localStorage.getItem("fontSize")) || 14);
 
   const [showSettings, setShowSettings] = useState(false);
   // saved SFTP/FTP connections (persisted locally; may include passwords)
@@ -367,7 +361,9 @@ function App() {
       setProxyDraft(s.proxy || "");
     });
     invoke<string | null>("claude_check").then(setClaudeVersion);
-    getVersion().then(setAppVersion).catch(() => {});
+    getVersion()
+      .then(setAppVersion)
+      .catch(() => {});
     isPermissionGranted().then((g) => {
       if (!g) requestPermission();
     });
@@ -477,10 +473,22 @@ function App() {
 
   useEffect(() => {
     const u: Array<Promise<() => void>> = [];
-    u.push(listen("code://delta", (e: { payload: StreamPayload }) => appendDelta(e.payload.id, e.payload.text)));
-    u.push(listen("code://tool", (e: { payload: StreamPayload }) => appendTool(e.payload.id, e.payload.text)));
-    u.push(listen("code://session", (e: { payload: SessionPayload }) => setSession(e.payload.id, e.payload.session_id)));
-    u.push(listen("code://usage", (e: { payload: UsagePayload }) => setUsage(e.payload.id, { input: e.payload.input, output: e.payload.output })));
+    u.push(
+      listen("code://delta", (e: { payload: StreamPayload }) => appendDelta(e.payload.id, e.payload.text))
+    );
+    u.push(
+      listen("code://tool", (e: { payload: StreamPayload }) => appendTool(e.payload.id, e.payload.text))
+    );
+    u.push(
+      listen("code://session", (e: { payload: SessionPayload }) =>
+        setSession(e.payload.id, e.payload.session_id)
+      )
+    );
+    u.push(
+      listen("code://usage", (e: { payload: UsagePayload }) =>
+        setUsage(e.payload.id, { input: e.payload.input, output: e.payload.output })
+      )
+    );
     u.push(
       listen("code://done", (e: { payload: IdPayload }) => {
         const tabId = reqToTab.current[e.payload.id];
@@ -495,7 +503,9 @@ function App() {
       listen("code://error", (e: { payload: ErrPayload }) =>
         finishReq(
           e.payload.id,
-          e.payload.message === "NOT_LOGGED_IN" ? "\n\n" + tRef.current.notLoggedIn : "\n\n⚠️ " + e.payload.message
+          e.payload.message === "NOT_LOGGED_IN"
+            ? "\n\n" + tRef.current.notLoggedIn
+            : "\n\n⚠️ " + e.payload.message
         )
       )
     );
@@ -507,7 +517,9 @@ function App() {
   }, [tabs, activeId]);
 
   useEffect(() => {
-    getCurrentWindow().setTitle(t.brand).catch(() => {});
+    getCurrentWindow()
+      .setTitle(t.brand)
+      .catch(() => {});
   }, [t.brand]);
 
   // drag & drop files → chat input (with image preview) or into the terminal
@@ -731,7 +743,9 @@ function App() {
         /* ignore */
       }
     }
-    const over = (document.elementFromPoint(e.clientX, e.clientY) as Element | null)?.closest("[data-tab-id]");
+    const over = (document.elementFromPoint(e.clientX, e.clientY) as Element | null)?.closest(
+      "[data-tab-id]"
+    );
     const overId = over?.getAttribute("data-tab-id");
     if (overId && overId !== st.id) reorderLive(st.id, overId);
   };
@@ -804,7 +818,11 @@ function App() {
     setTabs((ts) =>
       ts.map((tb) =>
         tb.id === activeTab.id
-          ? { ...tb, title: isFirst ? text.slice(0, 22) : tb.title, messages: [...tb.messages, userMsg, placeholder] }
+          ? {
+              ...tb,
+              title: isFirst ? text.slice(0, 22) : tb.title,
+              messages: [...tb.messages, userMsg, placeholder],
+            }
           : tb
       )
     );
@@ -950,55 +968,52 @@ function App() {
           // --session-id by whether that session exists for the current folder.
           // Picker tabs (--resume) and legacy tabs (no id → --continue on restart)
           // keep their explicit flags.
-          const legacyArgs = tb.termSession ? [] : tb.restored ? ["--continue"] : extra ?? [];
+          const legacyArgs = tb.termSession ? [] : tb.restored ? ["--continue"] : (extra ?? []);
           return (
-          <div key={tb.id} className="term-wrap" style={{ display: tb.id === activeId ? "flex" : "none" }}>
-            <div className="cwd-bar">
-              <label>{t.folder}</label>
-              <input
-                type="text"
-                placeholder={t.folderPick}
-                value={tb.cwd || ""}
-                readOnly
-                onClick={() => pickFolderForTab(tb.id)}
-                style={{ cursor: "pointer" }}
-              />
-              <button className="browse-btn" onClick={() => pickFolderForTab(tb.id)} title={t.choose}>
-                📁
-              </button>
-              {tb.cwd && (
-                <button
-                  className="browse-btn"
-                  onClick={() => setTabs((ts) => ts.map((x) => (x.id === tb.id ? { ...x, cwd: "" } : x)))}
-                  title={t.clearField}
-                >
-                  ✕
+            <div key={tb.id} className="term-wrap" style={{ display: tb.id === activeId ? "flex" : "none" }}>
+              <div className="cwd-bar">
+                <label>{t.folder}</label>
+                <input
+                  type="text"
+                  placeholder={t.folderPick}
+                  value={tb.cwd || ""}
+                  readOnly
+                  onClick={() => pickFolderForTab(tb.id)}
+                  style={{ cursor: "pointer" }}
+                />
+                <button className="browse-btn" onClick={() => pickFolderForTab(tb.id)} title={t.choose}>
+                  📁
                 </button>
-              )}
-              <button
-                className={`browse-btn auto-yes ${tb.skipPermissions ? "on" : ""}`}
-                title={t.autoYesHint}
-                onClick={() =>
-                  setTabs((ts) =>
-                    ts.map((x) => (x.id === tb.id ? { ...x, skipPermissions: !x.skipPermissions } : x))
-                  )
-                }
-              >
-                {tb.skipPermissions ? "✅" : "☑"} {t.autoYes}
-              </button>
+                {tb.cwd && (
+                  <button
+                    className="browse-btn"
+                    onClick={() => setTabs((ts) => ts.map((x) => (x.id === tb.id ? { ...x, cwd: "" } : x)))}
+                    title={t.clearField}
+                  >
+                    ✕
+                  </button>
+                )}
+                <button
+                  className={`browse-btn auto-yes ${tb.skipPermissions ? "on" : ""}`}
+                  title={t.autoYesHint}
+                  onClick={() =>
+                    setTabs((ts) =>
+                      ts.map((x) => (x.id === tb.id ? { ...x, skipPermissions: !x.skipPermissions } : x))
+                    )
+                  }
+                >
+                  {tb.skipPermissions ? "✅" : "☑"} {t.autoYes}
+                </button>
+              </div>
+              <TerminalView
+                key={`${tb.cwd}|${tb.skipPermissions ? "y" : "n"}`}
+                termId={tb.id}
+                cwd={tb.cwd}
+                claudeSession={tb.termSession}
+                fontSize={fontSize}
+                extraArgs={[...legacyArgs, ...(tb.skipPermissions ? ["--dangerously-skip-permissions"] : [])]}
+              />
             </div>
-            <TerminalView
-              key={`${tb.cwd}|${tb.skipPermissions ? "y" : "n"}`}
-              termId={tb.id}
-              cwd={tb.cwd}
-              claudeSession={tb.termSession}
-              fontSize={fontSize}
-              extraArgs={[
-                ...legacyArgs,
-                ...(tb.skipPermissions ? ["--dangerously-skip-permissions"] : []),
-              ]}
-            />
-          </div>
           );
         })}
 
