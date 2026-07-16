@@ -137,3 +137,46 @@ fn socks4_connect(s: &mut TcpStream, host: &str, port: u16) -> std::io::Result<(
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::ssh_proxy_command;
+
+    #[test]
+    fn empty_means_none() {
+        assert!(ssh_proxy_command("").is_none());
+        assert!(ssh_proxy_command("   ").is_none());
+    }
+
+    #[test]
+    fn bare_hostport_defaults_to_http_connect() {
+        assert_eq!(
+            ssh_proxy_command("127.0.0.1:8080").as_deref(),
+            Some("nc -X connect -x 127.0.0.1:8080 %h %p")
+        );
+    }
+
+    #[test]
+    fn socks5_scheme() {
+        assert_eq!(
+            ssh_proxy_command("socks5://127.0.0.1:1080").as_deref(),
+            Some("nc -X 5 -x 127.0.0.1:1080 %h %p")
+        );
+    }
+
+    #[test]
+    fn socks4_scheme() {
+        assert_eq!(
+            ssh_proxy_command("socks4://10.0.0.1:9050").as_deref(),
+            Some("nc -X 4 -x 10.0.0.1:9050 %h %p")
+        );
+    }
+
+    #[test]
+    fn https_scheme_maps_to_connect() {
+        assert_eq!(
+            ssh_proxy_command("https://proxy:3128").as_deref(),
+            Some("nc -X connect -x proxy:3128 %h %p")
+        );
+    }
+}

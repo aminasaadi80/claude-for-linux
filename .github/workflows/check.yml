@@ -21,6 +21,8 @@ jobs:
         run: npx eslint src --max-warnings 0
       - name: Format
         run: npx prettier --check src
+      - name: Tests
+        run: npx vitest run
 
   backend:
     runs-on: ubuntu-24.04

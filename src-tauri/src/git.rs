@@ -162,34 +162,77 @@ pub(crate) fn git_status(cwd: Option<String>) -> GitStatus {
         }
     }
 
-    let mut files = vec![];
     // --untracked-files=all forces untracked files to show (overriding any
     // status.showUntrackedFiles=no config) and lists each file inside a new
     // folder individually instead of collapsing it to the directory.
     let raw = git_out(&dir, &["status", "--porcelain", "--untracked-files=all"]);
-    for line in raw.lines() {
-        if line.len() < 4 {
-            continue;
-        }
-        let x = &line[0..1];
-        let y = &line[1..2];
-        let mut path = line[3..].to_string();
-        // renames are "orig -> new"; keep the new path
-        if let Some(idx) = path.find(" -> ") {
-            path = path[idx + 4..].to_string();
-        }
-        let untracked = x == "?";
-        files.push(GitFile {
-            path,
-            staged: x.to_string(),
-            unstaged: y.to_string(),
-            staged_flag: x != " " && !untracked,
-            unstaged_flag: y != " " && !untracked,
-            untracked,
-        });
-    }
+    let files = raw.lines().filter_map(parse_porcelain_line).collect();
 
     GitStatus { is_repo: true, branch, upstream, ahead, behind, files }
+}
+
+/// Parse one `git status --porcelain` line into a GitFile (None = too short).
+fn parse_porcelain_line(line: &str) -> Option<GitFile> {
+    if line.len() < 4 {
+        return None;
+    }
+    let x = &line[0..1];
+    let y = &line[1..2];
+    let mut path = line[3..].to_string();
+    // renames are "orig -> new"; keep the new path
+    if let Some(idx) = path.find(" -> ") {
+        path = path[idx + 4..].to_string();
+    }
+    let untracked = x == "?";
+    Some(GitFile {
+        path,
+        staged: x.to_string(),
+        unstaged: y.to_string(),
+        staged_flag: x != " " && !untracked,
+        unstaged_flag: y != " " && !untracked,
+        untracked,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_porcelain_line;
+
+    #[test]
+    fn staged_modification() {
+        let f = parse_porcelain_line("M  src/App.tsx").unwrap();
+        assert_eq!(f.path, "src/App.tsx");
+        assert!(f.staged_flag);
+        assert!(!f.unstaged_flag);
+        assert!(!f.untracked);
+    }
+
+    #[test]
+    fn unstaged_modification() {
+        let f = parse_porcelain_line(" M src/App.tsx").unwrap();
+        assert!(!f.staged_flag);
+        assert!(f.unstaged_flag);
+    }
+
+    #[test]
+    fn untracked_file() {
+        let f = parse_porcelain_line("?? notes.txt").unwrap();
+        assert!(f.untracked);
+        assert!(!f.staged_flag);
+        assert!(!f.unstaged_flag);
+    }
+
+    #[test]
+    fn rename_keeps_new_path() {
+        let f = parse_porcelain_line("R  old.rs -> new.rs").unwrap();
+        assert_eq!(f.path, "new.rs");
+    }
+
+    #[test]
+    fn short_lines_are_skipped() {
+        assert!(parse_porcelain_line("").is_none());
+        assert!(parse_porcelain_line("M ").is_none());
+    }
 }
 
 #[tauri::command]

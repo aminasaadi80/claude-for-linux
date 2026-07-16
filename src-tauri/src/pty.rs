@@ -278,3 +278,27 @@ pub(crate) fn pty_close(state: State<PtyState>, term_id: String) {
         let _ = s.child.kill();
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::claude_session_file;
+
+    // The slug must match Claude Code's own encoding (every non-alphanumeric
+    // char → '-'), or resume-vs-create decisions look in the wrong folder —
+    // exactly the folder-change bug this function exists to prevent.
+    #[test]
+    fn slug_replaces_non_alphanumerics() {
+        let p = claude_session_file("/home/amin/projects/barjil-hub/apps", "abc-123").unwrap();
+        assert!(p
+            .to_string_lossy()
+            .ends_with(".claude/projects/-home-amin-projects-barjil-hub-apps/abc-123.jsonl"));
+    }
+
+    #[test]
+    fn preserves_case_and_digits() {
+        let p = claude_session_file("/run/media/New Volume1", "sid").unwrap();
+        assert!(p
+            .to_string_lossy()
+            .ends_with(".claude/projects/-run-media-New-Volume1/sid.jsonl"));
+    }
+}

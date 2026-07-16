@@ -415,3 +415,25 @@ pub(crate) fn remote_disconnect(state: State<RemoteState>, conn_id: String) {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::remote_join;
+
+    #[test]
+    fn joins_from_root() {
+        assert_eq!(remote_join("/", "file.txt"), "/file.txt");
+        assert_eq!(remote_join("", "file.txt"), "/file.txt");
+    }
+
+    #[test]
+    fn joins_nested_dirs() {
+        assert_eq!(remote_join("/var/www", "index.php"), "/var/www/index.php");
+    }
+
+    #[test]
+    fn trims_redundant_slashes() {
+        assert_eq!(remote_join("/var/www/", "a"), "/var/www/a");
+        assert_eq!(remote_join("/", "/abs"), "/abs");
+    }
+}
