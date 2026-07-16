@@ -7,6 +7,8 @@ type Lang = "en" | "fa";
 
 export interface RemoteConfig {
   protocol: "sftp" | "ftp" | "ftps";
+  /** optional friendly name shown on the saved-connection chip */
+  name?: string;
   host: string;
   port: number;
   username: string;
@@ -27,6 +29,7 @@ interface RemoteFile {
 
 const S = {
   en: {
+    namePh: "My server",
     protocol: "Protocol",
     host: "Host",
     port: "Port",
@@ -65,6 +68,7 @@ const S = {
     fillHost: "Enter a host to connect.",
   },
   fa: {
+    namePh: "سرور من",
     protocol: "پروتکل",
     host: "هاست",
     port: "پورت",
@@ -105,6 +109,11 @@ const S = {
 };
 
 const DEFAULT_PORT = { sftp: 22, ftp: 21, ftps: 21 } as const;
+
+// the label on a saved chip: the friendly name if set, else protocol://user@host
+function label(c: RemoteConfig): string {
+  return c.name?.trim() || `${c.protocol}://${c.username ? `${c.username}@` : ""}${c.host}`;
+}
 
 function fmtSize(n: number, isDir: boolean): string {
   if (isDir) return "—";
@@ -301,16 +310,15 @@ export default function RemotePanel({
               <div className="rmt-saved-list">
                 {saved.map((s, i) => (
                   <span key={i} className="rmt-chip-wrap">
-                    <button className="rmt-chip" onClick={() => onUseSaved(s)}>
-                      {s.protocol}://{s.username ? `${s.username}@` : ""}
-                      {s.host}
+                    <button className="rmt-chip" onClick={() => onUseSaved(s)} title={`${s.protocol}://${s.username ? `${s.username}@` : ""}${s.host}`}>
+                      🌐 {label(s)}
                     </button>
                     <button
                       className="rmt-chip-del"
                       title={t.del}
                       onClick={async () => {
                         if (
-                          await confirm(t.delConfirm(`${s.protocol}://${s.host}`), {
+                          await confirm(t.delConfirm(label(s)), {
                             ok: t.del,
                             cancel: t.cancel,
                             danger: true,
@@ -327,6 +335,10 @@ export default function RemotePanel({
             </div>
           )}
 
+          <div className="rmt-row">
+            <label>{t.name}</label>
+            <input value={config.name ?? ""} onChange={(e) => set({ name: e.target.value })} placeholder={t.namePh} />
+          </div>
           <div className="rmt-row">
             <label>{t.protocol}</label>
             <select

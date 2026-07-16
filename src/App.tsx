@@ -256,7 +256,7 @@ function newTab(lang: Lang, kind: TabKind = "chat", cwd = ""): Tab {
 }
 
 function newRemoteConfig(): RemoteConfig {
-  return { protocol: "sftp", host: "", port: 22, username: "", password: "", key_path: "", passphrase: "", proxy: "" };
+  return { protocol: "sftp", name: "", host: "", port: 22, username: "", password: "", key_path: "", passphrase: "", proxy: "" };
 }
 
 function newSshConfig(): SshConfig {
