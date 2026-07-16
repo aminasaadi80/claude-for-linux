@@ -238,6 +238,8 @@ export const REMOTE_STR = {
     uploadThis: "Upload to server",
     noDirDrag: "Dragging folders isn't supported yet — files only.",
     dragHint: "Drag files between the two panes to upload / download.",
+    overwrite: "Overwrite",
+    overwriteConfirm: (n: string) => `"${n}" already exists there. Overwrite it?`,
   },
   fa: {
     namePh: "سرور من",
@@ -284,6 +286,8 @@ export const REMOTE_STR = {
     uploadThis: "آپلود به سرور",
     noDirDrag: "کشیدن پوشه هنوز پشتیبانی نمی‌شود — فقط فایل.",
     dragHint: "فایل‌ها را بین دو سمت بکش تا آپلود / دانلود شوند.",
+    overwrite: "بازنویسی",
+    overwriteConfirm: (n: string) => `«${n}» آنجا وجود دارد. بازنویسی شود؟`,
   },
 } as const;
 

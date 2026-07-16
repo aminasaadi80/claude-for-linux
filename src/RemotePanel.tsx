@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { usePrompt, useConfirm } from "./usePrompt";
 import { useToast } from "./useToast";
@@ -29,6 +30,15 @@ interface RemoteFile {
   is_dir: boolean;
   size: number;
   modified: number;
+}
+
+interface TransferProgress {
+  id: string;
+  name: string;
+  done: number;
+  /** 0 = size unknown */
+  total: number;
+  dir: "up" | "down";
 }
 
 const DEFAULT_PORT = { sftp: 22, ftp: 21, ftps: 21 } as const;
@@ -66,6 +76,8 @@ export default function RemotePanel({
   const [localCwd, setLocalCwd] = useState("");
   const [localFiles, setLocalFiles] = useState<RemoteFile[]>([]);
   const { toast, flash, clear: clearToast } = useToast(4500);
+  // live transfer progress for this connection (null = no transfer running)
+  const [progress, setProgress] = useState<TransferProgress | null>(null);
   // pointer-driven drag between the two panes (HTML5 DnD is swallowed by
   // Tauri's native file drag-drop handler on webkit, same as tab reordering)
   const dragRef = useRef<{
@@ -151,7 +163,18 @@ export default function RemotePanel({
     };
   }, [connId]);
 
+  // live progress events emitted by the backend during chunked transfers
+  useEffect(() => {
+    const un = listen("remote://progress", (e: { payload: TransferProgress }) => {
+      if (e.payload.id === connId) setProgress(e.payload);
+    });
+    return () => {
+      un.then((f) => f());
+    };
+  }, [connId]);
+
   const download = async (f: RemoteFile) => {
+    // the OS save dialog handles its own overwrite prompt
     const dest = await saveDialog({ defaultPath: f.name, title: t.download });
     if (typeof dest !== "string") return;
     setBusy(true);
@@ -162,33 +185,25 @@ export default function RemotePanel({
       flash(String(e));
     } finally {
       setBusy(false);
+      setProgress(null);
     }
   };
 
   const upload = async () => {
     const src = await openDialog({ multiple: false, title: t.upload });
     if (typeof src !== "string") return;
-    const name = baseName(src);
-    setBusy(true);
-    try {
-      await invoke("remote_upload", {
-        connId,
-        localPath: src,
-        remotePath: cwd === "/" ? `/${name}` : `${cwd}/${name}`,
-      });
-      flash(`${t.uploaded}: ${name}`);
-      await listDir(cwd);
-    } catch (e) {
-      flash(String(e));
-    } finally {
-      setBusy(false);
-    }
+    await uploadLocalFile(src, baseName(src));
   };
 
-  // upload a specific local file into the current remote folder (drag & drop /
-  // row button / OS file drop)
+  // upload a specific local file into the current remote folder (toolbar /
+  // drag & drop / row button / OS file drop) — asks before overwriting
   const uploadLocalFile = useCallback(
     async (localPath: string, name: string) => {
+      if (
+        files.some((x) => !x.is_dir && x.name === name) &&
+        !(await confirm(t.overwriteConfirm(name), { ok: t.overwrite, cancel: t.cancel, danger: true }))
+      )
+        return;
       setBusy(true);
       try {
         await invoke("remote_upload", {
@@ -203,13 +218,20 @@ export default function RemotePanel({
         flash(String(e));
       } finally {
         setBusy(false);
+        setProgress(null);
       }
     },
-    [connId, cwd, flash, t.uploaded]
+    [connId, cwd, files, flash, confirm, t]
   );
 
   // download a remote file straight into the current local folder (drag & drop)
+  // — asks before overwriting
   const downloadToLocal = async (f: RemoteFile) => {
+    if (
+      localFiles.some((x) => !x.is_dir && x.name === f.name) &&
+      !(await confirm(t.overwriteConfirm(f.name), { ok: t.overwrite, cancel: t.cancel, danger: true }))
+    )
+      return;
     setBusy(true);
     try {
       const dest = localCwd.endsWith("/") ? `${localCwd}${f.name}` : `${localCwd}/${f.name}`;
@@ -220,6 +242,7 @@ export default function RemotePanel({
       flash(String(e));
     } finally {
       setBusy(false);
+      setProgress(null);
     }
   };
 
@@ -595,6 +618,26 @@ export default function RemotePanel({
           </div>
         </div>
       </div>
+
+      {progress && (
+        <div className="rmt-progress" dir="ltr">
+          <span className="rmt-progress-label">
+            {progress.dir === "up" ? "⬆" : "⬇"} {progress.name} —{" "}
+            {progress.total > 0
+              ? `${Math.min(100, Math.round((progress.done / progress.total) * 100))}٪`
+              : fmtSize(progress.done, false)}
+          </span>
+          <div className="rmt-progress-track">
+            <div
+              className={`rmt-progress-fill ${progress.total === 0 ? "unknown" : ""}`}
+              style={{
+                width:
+                  progress.total > 0 ? `${Math.min(100, (progress.done / progress.total) * 100)}%` : "100%",
+              }}
+            />
+          </div>
+        </div>
+      )}
 
       <div className="rmt-drag-hint">{t.dragHint}</div>
 

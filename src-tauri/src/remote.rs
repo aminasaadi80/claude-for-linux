@@ -4,12 +4,12 @@
 // ----------------------------------------------------------------------------
 
 use std::collections::HashMap;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
-use tauri::State;
+use tauri::{AppHandle, Emitter, State};
 
 use crate::proxy::connect_via_proxy;
 
@@ -294,8 +294,63 @@ fn list_ftp(lines: Vec<String>, dir: &str, out: &mut Vec<RemoteFile>) {
     }
 }
 
+#[derive(Serialize, Clone)]
+struct TransferProgress {
+    /// the connection (tab) id
+    id: String,
+    /// file name being transferred
+    name: String,
+    done: u64,
+    /// 0 = size unknown (some FTP servers don't answer SIZE)
+    total: u64,
+    /// "up" | "down"
+    dir: String,
+}
+
+/// Copy reader→writer in 64 KB chunks, emitting `remote://progress` events
+/// (throttled to ~10/s, plus a final one) so the UI can show a live bar.
+fn copy_with_progress(
+    app: &AppHandle,
+    conn_id: &str,
+    name: &str,
+    dir: &str,
+    total: u64,
+    reader: &mut impl Read,
+    writer: &mut impl Write,
+) -> Result<(), String> {
+    let mut buf = [0u8; 64 * 1024];
+    let mut done: u64 = 0;
+    let mut last = std::time::Instant::now();
+    loop {
+        let n = reader.read(&mut buf).map_err(|e| e.to_string())?;
+        if n == 0 {
+            break;
+        }
+        writer.write_all(&buf[..n]).map_err(|e| e.to_string())?;
+        done += n as u64;
+        if last.elapsed().as_millis() >= 100 {
+            last = std::time::Instant::now();
+            let _ = app.emit(
+                "remote://progress",
+                TransferProgress { id: conn_id.into(), name: name.into(), done, total, dir: dir.into() },
+            );
+        }
+    }
+    writer.flush().map_err(|e| e.to_string())?;
+    let _ = app.emit(
+        "remote://progress",
+        TransferProgress { id: conn_id.into(), name: name.into(), done, total, dir: dir.into() },
+    );
+    Ok(())
+}
+
+fn path_name(p: &str) -> String {
+    p.trim_end_matches('/').rsplit('/').next().unwrap_or(p).to_string()
+}
+
 #[tauri::command]
 pub(crate) fn remote_download(
+    app: AppHandle,
     state: State<RemoteState>,
     conn_id: String,
     remote_path: String,
@@ -304,18 +359,28 @@ pub(crate) fn remote_download(
     let mut guard = state.conns.lock().unwrap();
     let conn = guard.get_mut(&conn_id).ok_or("اتصال یافت نشد")?;
     let mut local = std::fs::File::create(&local_path).map_err(|e| e.to_string())?;
+    let name = path_name(&remote_path);
     match conn {
         Conn::Sftp { sftp, .. } => {
+            let total = sftp
+                .stat(std::path::Path::new(&remote_path))
+                .ok()
+                .and_then(|st| st.size)
+                .unwrap_or(0);
             let mut rf = sftp.open(std::path::Path::new(&remote_path)).map_err(|e| e.to_string())?;
-            std::io::copy(&mut rf, &mut local).map_err(|e| e.to_string())?;
+            copy_with_progress(&app, &conn_id, &name, "down", total, &mut rf, &mut local)?;
         }
         Conn::Ftp(f) => {
-            let buf = f.retr_as_buffer(&remote_path).map_err(|e| e.to_string())?;
-            local.write_all(buf.into_inner().as_slice()).map_err(|e| e.to_string())?;
+            let total = f.size(&remote_path).map(|s| s as u64).unwrap_or(0);
+            let mut stream = f.retr_as_stream(&remote_path).map_err(|e| e.to_string())?;
+            copy_with_progress(&app, &conn_id, &name, "down", total, &mut stream, &mut local)?;
+            f.finalize_retr_stream(stream).map_err(|e| e.to_string())?;
         }
         Conn::Ftps(f) => {
-            let buf = f.retr_as_buffer(&remote_path).map_err(|e| e.to_string())?;
-            local.write_all(buf.into_inner().as_slice()).map_err(|e| e.to_string())?;
+            let total = f.size(&remote_path).map(|s| s as u64).unwrap_or(0);
+            let mut stream = f.retr_as_stream(&remote_path).map_err(|e| e.to_string())?;
+            copy_with_progress(&app, &conn_id, &name, "down", total, &mut stream, &mut local)?;
+            f.finalize_retr_stream(stream).map_err(|e| e.to_string())?;
         }
     }
     Ok(())
@@ -323,6 +388,7 @@ pub(crate) fn remote_download(
 
 #[tauri::command]
 pub(crate) fn remote_upload(
+    app: AppHandle,
     state: State<RemoteState>,
     conn_id: String,
     local_path: String,
@@ -331,16 +397,22 @@ pub(crate) fn remote_upload(
     let mut guard = state.conns.lock().unwrap();
     let conn = guard.get_mut(&conn_id).ok_or("اتصال یافت نشد")?;
     let mut local = std::fs::File::open(&local_path).map_err(|e| e.to_string())?;
+    let total = local.metadata().map(|m| m.len()).unwrap_or(0);
+    let name = path_name(&remote_path);
     match conn {
         Conn::Sftp { sftp, .. } => {
             let mut rf = sftp.create(std::path::Path::new(&remote_path)).map_err(|e| e.to_string())?;
-            std::io::copy(&mut local, &mut rf).map_err(|e| e.to_string())?;
+            copy_with_progress(&app, &conn_id, &name, "up", total, &mut local, &mut rf)?;
         }
         Conn::Ftp(f) => {
-            f.put_file(&remote_path, &mut local).map_err(|e| e.to_string())?;
+            let mut stream = f.put_with_stream(&remote_path).map_err(|e| e.to_string())?;
+            copy_with_progress(&app, &conn_id, &name, "up", total, &mut local, &mut stream)?;
+            f.finalize_put_stream(stream).map_err(|e| e.to_string())?;
         }
         Conn::Ftps(f) => {
-            f.put_file(&remote_path, &mut local).map_err(|e| e.to_string())?;
+            let mut stream = f.put_with_stream(&remote_path).map_err(|e| e.to_string())?;
+            copy_with_progress(&app, &conn_id, &name, "up", total, &mut local, &mut stream)?;
+            f.finalize_put_stream(stream).map_err(|e| e.to_string())?;
         }
     }
     Ok(())

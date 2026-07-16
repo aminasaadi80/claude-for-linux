@@ -17,6 +17,8 @@ export default tseslint.config(
       "react-hooks/refs": "off",
       // Panels intentionally reset/fetch state in effects keyed on cwd/selection.
       "react-hooks/set-state-in-effect": "off",
+      // React-Compiler-oriented rule; this project doesn't use the compiler.
+      "react-hooks/preserve-manual-memoization": "off",
       // the codebase intentionally ignores some promise results (fire-and-forget invokes)
       "@typescript-eslint/no-floating-promises": "off",
       "@typescript-eslint/no-unused-vars": ["warn", { argsIgnorePattern: "^_", varsIgnorePattern: "^_" }],

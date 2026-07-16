@@ -1179,6 +1179,56 @@ body,
   white-space: nowrap;
   flex-shrink: 0;
 }
+.rmt-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-soft);
+  font-size: 12px;
+}
+.rmt-progress-label {
+  flex-shrink: 0;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+}
+.rmt-progress-track {
+  flex: 1;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+.rmt-progress-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 4px;
+  transition: width 0.15s linear;
+}
+/* unknown size: show an animated indeterminate shimmer instead of a real % */
+.rmt-progress-fill.unknown {
+  background: repeating-linear-gradient(
+    45deg,
+    var(--accent),
+    var(--accent) 8px,
+    var(--accent-soft) 8px,
+    var(--accent-soft) 16px
+  );
+  animation: rmt-indeterminate 1s linear infinite;
+}
+@keyframes rmt-indeterminate {
+  from {
+    background-position: 0 0;
+  }
+  to {
+    background-position: 22px 0;
+  }
+}
 .rmt-drag-hint {
   padding: 4px 12px;
   font-size: 11px;
