@@ -17,6 +17,8 @@ export interface RemoteConfig {
   passphrase?: string;
   /** optional per-connection proxy, independent of the app proxy */
   proxy?: string;
+  /** optional local project folder shown in the left pane (empty = home) */
+  local_path?: string;
 }
 
 interface RemoteFile {
@@ -66,6 +68,13 @@ const S = {
     done: "Done",
     dir: "folder",
     fillHost: "Enter a host to connect.",
+    localFolder: "Local folder",
+    localFolderPh: "Click to choose… (empty = home folder)",
+    localPane: "Local",
+    remotePane: "Server",
+    uploadThis: "Upload to server",
+    noDirDrag: "Dragging folders isn't supported yet — files only.",
+    dragHint: "Drag files between the two panes to upload / download.",
   },
   fa: {
     namePh: "سرور من",
@@ -105,6 +114,13 @@ const S = {
     done: "انجام شد",
     dir: "پوشه",
     fillHost: "برای اتصال یک هاست وارد کن.",
+    localFolder: "پوشه‌ی لوکال",
+    localFolderPh: "برای انتخاب کلیک کن… (خالی = پوشه‌ی خانه)",
+    localPane: "لوکال",
+    remotePane: "سرور",
+    uploadThis: "آپلود به سرور",
+    noDirDrag: "کشیدن پوشه هنوز پشتیبانی نمی‌شود — فقط فایل.",
+    dragHint: "فایل‌ها را بین دو سمت بکش تا آپلود / دانلود شوند.",
   },
 };
 
@@ -163,8 +179,23 @@ export default function RemotePanel({
   const [busy, setBusy] = useState(false);
   const [cwd, setCwd] = useState("/");
   const [files, setFiles] = useState<RemoteFile[]>([]);
+  // left pane: the local file browser
+  const [localCwd, setLocalCwd] = useState("");
+  const [localFiles, setLocalFiles] = useState<RemoteFile[]>([]);
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<number | null>(null);
+  // pointer-driven drag between the two panes (HTML5 DnD is swallowed by
+  // Tauri's native file drag-drop handler on webkit, same as tab reordering)
+  const dragRef = useRef<{
+    source: "local" | "remote";
+    file: RemoteFile;
+    startX: number;
+    startY: number;
+    active: boolean;
+  } | null>(null);
+  const dropRef = useRef<"local" | "remote" | null>(null);
+  const [dragGhost, setDragGhost] = useState<{ x: number; y: number; label: string } | null>(null);
+  const [dropTarget, setDropTarget] = useState<"local" | "remote" | null>(null);
   const { ask, node: promptNode } = usePrompt();
   const { confirm, node: confirmNode } = useConfirm();
 
@@ -192,6 +223,21 @@ export default function RemotePanel({
     [connId, flash]
   );
 
+  const listLocal = useCallback(
+    async (path?: string) => {
+      try {
+        const r = await invoke<{ path: string; files: RemoteFile[] }>("local_list", {
+          path: path ?? null,
+        });
+        setLocalFiles(r.files);
+        setLocalCwd(r.path);
+      } catch (e) {
+        flash(String(e));
+      }
+    },
+    [flash]
+  );
+
   const connect = async () => {
     if (!config.host.trim()) {
       flash(t.fillHost);
@@ -202,6 +248,8 @@ export default function RemotePanel({
       const start = await invoke<string>("remote_connect", { connId, creds: config });
       setConnected(true);
       await listDir(start || "/");
+      // left pane: the chosen local project folder, else the home folder
+      await listLocal(config.local_path?.trim() || undefined);
     } catch (e) {
       flash(String(e));
     } finally {
@@ -255,6 +303,103 @@ export default function RemotePanel({
     } finally {
       setBusy(false);
     }
+  };
+
+  // upload a specific local file into the current remote folder (drag & drop /
+  // row button / OS file drop)
+  const uploadLocalFile = useCallback(
+    async (localPath: string, name: string) => {
+      setBusy(true);
+      try {
+        await invoke("remote_upload", {
+          connId,
+          localPath,
+          remotePath: cwd === "/" ? `/${name}` : `${cwd}/${name}`,
+        });
+        flash(`${t.uploaded}: ${name}`);
+        const f = await invoke<RemoteFile[]>("remote_list", { connId, path: cwd });
+        setFiles(f);
+      } catch (e) {
+        flash(String(e));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [connId, cwd, flash, t.uploaded]
+  );
+
+  // download a remote file straight into the current local folder (drag & drop)
+  const downloadToLocal = async (f: RemoteFile) => {
+    setBusy(true);
+    try {
+      const dest = localCwd.endsWith("/") ? `${localCwd}${f.name}` : `${localCwd}/${f.name}`;
+      await invoke("remote_download", { connId, remotePath: f.path, localPath: dest });
+      flash(`${t.downloaded}: ${f.name}`);
+      await listLocal(localCwd);
+    } catch (e) {
+      flash(String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // files dropped from the OS file manager onto this tab → upload to remote cwd
+  useEffect(() => {
+    const onOsDrop = (e: Event) => {
+      const detail = (e as CustomEvent<{ tabId: string; paths: string[] }>).detail;
+      if (!connected || detail.tabId !== connId) return;
+      (async () => {
+        for (const p of detail.paths) await uploadLocalFile(p, baseName(p));
+      })();
+    };
+    window.addEventListener("remote-os-drop", onOsDrop);
+    return () => window.removeEventListener("remote-os-drop", onOsDrop);
+  }, [connected, connId, uploadLocalFile]);
+
+  // ---- pointer-driven drag between panes ----
+  const onRowPointerDown = (e: React.PointerEvent, source: "local" | "remote", f: RemoteFile) => {
+    if (e.button !== 0) return;
+    dragRef.current = { source, file: f, startX: e.clientX, startY: e.clientY, active: false };
+  };
+  const onRowPointerMove = (e: React.PointerEvent) => {
+    const st = dragRef.current;
+    if (!st) return;
+    if (!st.active) {
+      if (Math.abs(e.clientX - st.startX) < 6 && Math.abs(e.clientY - st.startY) < 6) return;
+      st.active = true;
+      try {
+        (e.currentTarget as Element).setPointerCapture(e.pointerId);
+      } catch {
+        /* ignore */
+      }
+    }
+    setDragGhost({
+      x: e.clientX,
+      y: e.clientY,
+      label: `${st.file.is_dir ? "📁" : "📄"} ${st.file.name}`,
+    });
+    const pane = (document.elementFromPoint(e.clientX, e.clientY) as Element | null)?.closest(
+      "[data-pane]"
+    );
+    const p = (pane?.getAttribute("data-pane") ?? null) as "local" | "remote" | null;
+    const tgt = p && p !== st.source ? p : null;
+    dropRef.current = tgt;
+    setDropTarget(tgt);
+  };
+  const onRowPointerUp = () => {
+    const st = dragRef.current;
+    const tgt = dropRef.current;
+    dragRef.current = null;
+    dropRef.current = null;
+    setDragGhost(null);
+    setDropTarget(null);
+    if (!st?.active || !tgt || tgt === st.source) return;
+    if (st.file.is_dir) {
+      flash(t.noDirDrag);
+      return;
+    }
+    if (st.source === "local" && tgt === "remote") uploadLocalFile(st.file.path, st.file.name);
+    else if (st.source === "remote" && tgt === "local") downloadToLocal(st.file);
   };
 
   const mkdir = async () => {
@@ -408,6 +553,24 @@ export default function RemotePanel({
           )}
 
           <div className="rmt-row">
+            <label>{t.localFolder}</label>
+            <input
+              value={config.local_path ?? ""}
+              readOnly
+              placeholder={t.localFolderPh}
+              onClick={async () => {
+                const p = await openDialog({ directory: true, multiple: false, title: t.localFolder });
+                if (typeof p === "string") set({ local_path: p });
+              }}
+              style={{ cursor: "pointer" }}
+            />
+            {config.local_path && (
+              <button className="rmt-btn" onClick={() => set({ local_path: "" })}>
+                ✕
+              </button>
+            )}
+          </div>
+          <div className="rmt-row">
             <label>{t.proxy}</label>
             <input value={config.proxy ?? ""} onChange={(e) => set({ proxy: e.target.value })} placeholder={t.proxyPh} />
           </div>
@@ -433,50 +596,27 @@ export default function RemotePanel({
     );
   }
 
-  // ---- connected: the file browser ----
-  return (
-    <div className="rmt-panel">
-      <div className="rmt-bar">
-        <button className="rmt-btn" disabled={busy || cwd === "/"} onClick={() => listDir(parentPath(cwd))} title={t.up}>
-          ⬆
-        </button>
-        <button className="rmt-btn" disabled={busy} onClick={() => listDir(cwd)} title={t.refresh}>
-          ↻
-        </button>
-        <span className="rmt-path" title={cwd}>
-          {cwd}
+  // ---- connected: dual-pane browser — local project on the left, server on
+  // the right; drag files between the panes to upload / download ----
+  const fileRow = (f: RemoteFile, source: "local" | "remote") => {
+    const enter = () => f.is_dir && (source === "local" ? listLocal(f.path) : listDir(f.path));
+    return (
+      <div
+        key={f.path}
+        className="rmt-file"
+        onPointerDown={(e) => onRowPointerDown(e, source, f)}
+        onPointerMove={onRowPointerMove}
+        onPointerUp={onRowPointerUp}
+        onDoubleClick={enter}
+      >
+        <span className="rmt-fname" onClick={enter} style={{ cursor: f.is_dir ? "pointer" : "default" }}>
+          {f.is_dir ? "📁" : "📄"} {f.name}
         </span>
-        <span className="rmt-spacer" />
-        <button className="rmt-btn" disabled={busy} onClick={upload}>
-          ⬆ {t.upload}
-        </button>
-        <button className="rmt-btn" disabled={busy} onClick={mkdir}>
-          📁＋
-        </button>
-        <button className="rmt-btn danger" disabled={busy} onClick={disconnect}>
-          {t.disconnect}
-        </button>
-      </div>
-
-      <div className="rmt-list">
-        <div className="rmt-head">
-          <span>{t.name}</span>
-          <span>{t.size}</span>
-          <span>{t.modified}</span>
-          <span />
-        </div>
-        {files.map((f) => (
-          <div
-            key={f.path}
-            className="rmt-file"
-            onDoubleClick={() => f.is_dir && listDir(f.path)}
-          >
-            <span className="rmt-fname" onClick={() => f.is_dir && listDir(f.path)} style={{ cursor: f.is_dir ? "pointer" : "default" }}>
-              {f.is_dir ? "📁" : "📄"} {f.name}
-            </span>
-            <span className="rmt-fsize">{fmtSize(f.size, f.is_dir)}</span>
-            <span className="rmt-ftime">{fmtTime(f.modified)}</span>
-            <span className="rmt-fact">
+        <span className="rmt-fsize">{fmtSize(f.size, f.is_dir)}</span>
+        <span className="rmt-ftime">{fmtTime(f.modified)}</span>
+        <span className="rmt-fact">
+          {source === "remote" ? (
+            <>
               {!f.is_dir && (
                 <button className="rmt-mini" title={t.download} onClick={() => download(f)}>
                   ⬇
@@ -488,11 +628,101 @@ export default function RemotePanel({
               <button className="rmt-mini" title={t.del} onClick={() => remove(f)}>
                 🗑
               </button>
+            </>
+          ) : (
+            !f.is_dir && (
+              <button className="rmt-mini" title={t.uploadThis} onClick={() => uploadLocalFile(f.path, f.name)}>
+                ⬆
+              </button>
+            )
+          )}
+        </span>
+      </div>
+    );
+  };
+
+  const listHead = (
+    <div className="rmt-head">
+      <span>{t.name}</span>
+      <span>{t.size}</span>
+      <span>{t.modified}</span>
+      <span />
+    </div>
+  );
+
+  return (
+    <div className="rmt-panel">
+      <div className="rmt-split" dir="ltr">
+        {/* left: local files */}
+        <div className={`rmt-pane ${dropTarget === "local" ? "drop" : ""}`} data-pane="local">
+          <div className="rmt-bar">
+            <span className="rmt-pane-title">📁 {t.localPane}</span>
+            <button
+              className="rmt-btn"
+              disabled={localCwd === "/"}
+              onClick={() => listLocal(parentPath(localCwd))}
+              title={t.up}
+            >
+              ⬆
+            </button>
+            <button className="rmt-btn" onClick={() => listLocal(localCwd)} title={t.refresh}>
+              ↻
+            </button>
+            <span className="rmt-path" title={localCwd}>
+              {localCwd}
             </span>
           </div>
-        ))}
-        {files.length === 0 && !busy && <div className="rmt-empty">{t.empty}</div>}
+          <div className="rmt-list">
+            {listHead}
+            {localFiles.map((f) => fileRow(f, "local"))}
+            {localFiles.length === 0 && <div className="rmt-empty">{t.empty}</div>}
+          </div>
+        </div>
+
+        {/* right: the server */}
+        <div className={`rmt-pane ${dropTarget === "remote" ? "drop" : ""}`} data-pane="remote">
+          <div className="rmt-bar">
+            <span className="rmt-pane-title">🌐 {t.remotePane}</span>
+            <button
+              className="rmt-btn"
+              disabled={busy || cwd === "/"}
+              onClick={() => listDir(parentPath(cwd))}
+              title={t.up}
+            >
+              ⬆
+            </button>
+            <button className="rmt-btn" disabled={busy} onClick={() => listDir(cwd)} title={t.refresh}>
+              ↻
+            </button>
+            <span className="rmt-path" title={cwd}>
+              {cwd}
+            </span>
+            <span className="rmt-spacer" />
+            <button className="rmt-btn" disabled={busy} onClick={upload} title={t.upload}>
+              ⬆ {t.upload}
+            </button>
+            <button className="rmt-btn" disabled={busy} onClick={mkdir} title={t.newFolder}>
+              📁＋
+            </button>
+            <button className="rmt-btn danger" disabled={busy} onClick={disconnect}>
+              {t.disconnect}
+            </button>
+          </div>
+          <div className="rmt-list">
+            {listHead}
+            {files.map((f) => fileRow(f, "remote"))}
+            {files.length === 0 && !busy && <div className="rmt-empty">{t.empty}</div>}
+          </div>
+        </div>
       </div>
+
+      <div className="rmt-drag-hint">{t.dragHint}</div>
+
+      {dragGhost && (
+        <div className="rmt-drag-ghost" style={{ left: dragGhost.x + 14, top: dragGhost.y + 14 }}>
+          {dragGhost.label}
+        </div>
+      )}
 
       {toast && (
         <div className="rmt-toast" onClick={() => setToast(null)}>

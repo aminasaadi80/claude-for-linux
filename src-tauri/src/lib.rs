@@ -1275,6 +1275,48 @@ struct RemoteState {
     conns: Mutex<HashMap<String, Conn>>,
 }
 
+#[derive(Serialize)]
+struct LocalListing {
+    /// the resolved absolute folder that was listed
+    path: String,
+    files: Vec<RemoteFile>,
+}
+
+/// List a local folder for the dual-pane view of the SFTP/FTP tab. An empty
+/// path resolves to the user's home directory (the default left pane).
+#[tauri::command]
+fn local_list(path: Option<String>) -> Result<LocalListing, String> {
+    let dir = match path.as_deref().filter(|s| !s.trim().is_empty()) {
+        Some(p) => std::path::PathBuf::from(p),
+        None => dirs::home_dir().ok_or_else(|| "پوشه‌ی خانه پیدا نشد".to_string())?,
+    };
+    let dir = dir.canonicalize().map_err(|e| format!("{}: {}", dir.display(), e))?;
+    let mut files = Vec::new();
+    for ent in std::fs::read_dir(&dir).map_err(|e| e.to_string())? {
+        let Ok(ent) = ent else { continue };
+        let Ok(md) = ent.metadata() else { continue };
+        let modified = md
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        files.push(RemoteFile {
+            name: ent.file_name().to_string_lossy().into_owned(),
+            path: ent.path().to_string_lossy().into_owned(),
+            is_dir: md.is_dir(),
+            size: md.len(),
+            modified,
+        });
+    }
+    files.sort_by(|a, b| {
+        b.is_dir
+            .cmp(&a.is_dir)
+            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+    });
+    Ok(LocalListing { path: dir.to_string_lossy().into_owned(), files })
+}
+
 /// Join a remote base path and an entry name with forward slashes.
 fn remote_join(base: &str, name: &str) -> String {
     if base.is_empty() || base == "/" {
@@ -1636,6 +1678,7 @@ pub fn run() {
             git_log,
             remote_connect,
             remote_list,
+            local_list,
             remote_download,
             remote_upload,
             remote_mkdir,

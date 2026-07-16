@@ -1145,6 +1145,62 @@ body,
   flex-direction: column;
   position: relative;
 }
+.rmt-split {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.rmt-pane {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  border: 2px solid transparent;
+  border-radius: 6px;
+  transition: border-color 0.12s, background-color 0.12s;
+}
+.rmt-pane + .rmt-pane {
+  border-inline-start: 1px solid var(--border);
+}
+.rmt-pane.drop {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+.rmt-pane .rmt-list {
+  flex: 1;
+  min-height: 0;
+}
+.rmt-pane-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.rmt-drag-hint {
+  padding: 4px 12px;
+  font-size: 11px;
+  color: var(--muted);
+  text-align: center;
+  border-top: 1px solid var(--border);
+}
+.rmt-drag-ghost {
+  position: fixed;
+  z-index: 100;
+  pointer-events: none;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 12px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: ltr;
+}
 .rmt-form {
   max-width: 520px;
   width: 100%;
@@ -1338,6 +1394,17 @@ body,
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.03em;
+}
+.rmt-file {
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+}
+/* tighter columns inside the half-width dual panes */
+.rmt-pane .rmt-head,
+.rmt-pane .rmt-file {
+  grid-template-columns: 1fr 66px 132px 78px;
+  gap: 8px;
 }
 .rmt-file:hover {
   background: var(--panel);

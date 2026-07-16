@@ -256,7 +256,18 @@ function newTab(lang: Lang, kind: TabKind = "chat", cwd = ""): Tab {
 }
 
 function newRemoteConfig(): RemoteConfig {
-  return { protocol: "sftp", name: "", host: "", port: 22, username: "", password: "", key_path: "", passphrase: "", proxy: "" };
+  return {
+    protocol: "sftp",
+    name: "",
+    host: "",
+    port: 22,
+    username: "",
+    password: "",
+    key_path: "",
+    passphrase: "",
+    proxy: "",
+    local_path: "",
+  };
 }
 
 function newSshConfig(): SshConfig {
@@ -513,6 +524,11 @@ function App() {
         const joined = paths.join(" ");
         if (activeRef.current.kind === "terminal") {
           invoke("pty_write", { termId: activeRef.current.id, data: joined + " " }).catch(() => {});
+        } else if (activeRef.current.kind === "remote") {
+          // files dropped from the OS onto an SFTP/FTP tab → upload them there
+          window.dispatchEvent(
+            new CustomEvent("remote-os-drop", { detail: { tabId: activeRef.current.id, paths: raw } })
+          );
         } else {
           setInput((prev) => (prev ? prev + " " : "") + joined);
           const img = raw.find((x) => isImage(x));
