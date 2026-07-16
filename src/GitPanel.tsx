@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { usePrompt, useConfirm } from "./usePrompt";
-
-type Lang = "en" | "fa";
+import { useToast } from "./useToast";
+import { GIT_STR, type Lang } from "./i18n";
 
 interface GitFile {
   path: string;
@@ -32,69 +32,6 @@ interface GitCommit {
   message: string;
 }
 
-const S = {
-  en: {
-    noRepo: "This folder is not a git repository.",
-    pickFolder: "Pick a project folder above to use Git.",
-    fetch: "Fetch",
-    pull: "Pull",
-    push: "Push",
-    refresh: "Refresh",
-    branch: "Branch",
-    newBranch: "New branch…",
-    newBranchPrompt: "New branch name:",
-    staged: "Staged",
-    unstaged: "Changes",
-    stageAll: "Stage all",
-    unstageAll: "Unstage all",
-    stage: "Stage",
-    unstage: "Unstage",
-    discard: "Discard",
-    cancel: "Cancel",
-    discardConfirm: (p: string) => `Discard all changes to "${p}"? This cannot be undone.`,
-    commitMsg: "Commit message",
-    commit: "Commit",
-    commitPush: "Commit & Push",
-    history: "History",
-    nothing: "Nothing to commit, working tree clean.",
-    selectFile: "Select a file to see its diff.",
-    ahead: "ahead",
-    behind: "behind",
-    done: "Done",
-    closeDiff: "Close (back to history)",
-  },
-  fa: {
-    noRepo: "این پوشه یک مخزن git نیست.",
-    pickFolder: "برای استفاده از Git، از بالا یک پوشه‌ی پروژه انتخاب کن.",
-    fetch: "دریافت",
-    pull: "Pull",
-    push: "Push",
-    refresh: "تازه‌سازی",
-    branch: "شاخه",
-    newBranch: "شاخه‌ی جدید…",
-    newBranchPrompt: "نام شاخه‌ی جدید:",
-    staged: "Stage‌شده",
-    unstaged: "تغییرات",
-    stageAll: "Stage همه",
-    unstageAll: "خارج‌کردن همه",
-    stage: "Stage",
-    unstage: "خارج‌کردن",
-    discard: "دور‌ریختن",
-    cancel: "انصراف",
-    discardConfirm: (p: string) => `همه‌ی تغییرات «${p}» دور ریخته شود؟ قابل بازگشت نیست.`,
-    commitMsg: "پیام commit",
-    commit: "Commit",
-    commitPush: "Commit و Push",
-    history: "تاریخچه",
-    nothing: "چیزی برای commit نیست، درخت کاری تمیز است.",
-    selectFile: "برای دیدن diff، یک فایل انتخاب کن.",
-    ahead: "جلو",
-    behind: "عقب",
-    done: "انجام شد",
-    closeDiff: "بستن (بازگشت به تاریخچه)",
-  },
-};
-
 function statusLabel(f: GitFile): string {
   if (f.untracked) return "?";
   const c = (f.staged_flag ? f.staged : f.unstaged).trim();
@@ -102,7 +39,7 @@ function statusLabel(f: GitFile): string {
 }
 
 export default function GitPanel({ cwd, lang, proxy }: { cwd: string; lang: Lang; proxy?: string }) {
-  const t = S[lang];
+  const t = GIT_STR[lang];
   const [status, setStatus] = useState<GitStatus | null>(null);
   const [branches, setBranches] = useState<GitBranches | null>(null);
   const [log, setLog] = useState<GitCommit[]>([]);
@@ -110,16 +47,9 @@ export default function GitPanel({ cwd, lang, proxy }: { cwd: string; lang: Lang
   const [diff, setDiff] = useState("");
   const [commitMsg, setCommitMsg] = useState("");
   const [busy, setBusy] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
-  const toastTimer = useRef<number | null>(null);
+  const { toast, flash, clear: clearToast } = useToast();
   const { ask, node: promptNode } = usePrompt();
   const { confirm, node: confirmNode } = useConfirm();
-
-  const flash = useCallback((msg: string) => {
-    setToast(msg);
-    if (toastTimer.current) window.clearTimeout(toastTimer.current);
-    toastTimer.current = window.setTimeout(() => setToast(null), 4000);
-  }, []);
 
   const refresh = useCallback(async () => {
     try {
@@ -430,7 +360,7 @@ export default function GitPanel({ cwd, lang, proxy }: { cwd: string; lang: Lang
       </div>
 
       {toast && (
-        <div className="git-toast" onClick={() => setToast(null)}>
+        <div className="git-toast" onClick={clearToast}>
           {toast}
         </div>
       )}

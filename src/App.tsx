@@ -16,17 +16,12 @@ import GitPanel from "./GitPanel";
 import RemotePanel, { type RemoteConfig } from "./RemotePanel";
 import SshPanel, { type SshConfig } from "./SshPanel";
 import { useConfirm } from "./usePrompt";
+import CwdBar from "./components/CwdBar";
+import { APP_STR as STR, type Lang } from "./i18n";
+import { quotePath, isImage } from "./utils";
 import "./App.css";
 
-function quotePath(p: string): string {
-  return /\s/.test(p) ? `"${p}"` : p;
-}
-function isImage(p: string): boolean {
-  return /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(p);
-}
-
 type Role = "user" | "assistant";
-type Lang = "en" | "fa";
 type Perm = "default" | "acceptEdits" | "bypassPermissions";
 type Theme = "dark" | "light";
 
@@ -80,131 +75,6 @@ const PERMS: { id: Perm; en: string; fa: string }[] = [
   { id: "acceptEdits", en: "Accept edits", fa: "تأیید ویرایش‌ها" },
   { id: "bypassPermissions", en: "Full access", fa: "دسترسی کامل" },
 ];
-
-const STR = {
-  en: {
-    brand: "Claude for Linux",
-    clear: "Clear conversation",
-    settings: "Settings",
-    newTab: "New chat tab",
-    newTerm: "New terminal (full Claude Code)",
-    newGit: "New Git panel",
-    newRemote: "New SFTP / FTP connection",
-    newSsh: "New SSH connection",
-    gitProxy: "Proxy (optional)",
-    gitProxyHint: "Optional proxy for fetch/pull/push — separate from the app proxy. Empty = direct.",
-    resume: "Resume a past session",
-    tab: (n: number) => `Chat ${n}`,
-    tabTerm: (n: number) => `Terminal ${n}`,
-    tabGit: (n: number) => `Git ${n}`,
-    tabRemote: (n: number) => `SFTP ${n}`,
-    tabSsh: (n: number) => `SSH ${n}`,
-    closeConfirm: (title: string) => `Close "${title}"?`,
-    autoYes: "Auto-approve",
-    autoYesHint:
-      "Answer yes to every permission prompt (--dangerously-skip-permissions). Restarts this terminal.",
-    folder: "Project folder:",
-    folderPick: "Click to choose… (empty = current folder)",
-    choose: "Choose folder",
-    terminal: "Open external terminal here",
-    split: "Split with a terminal",
-    exportMd: "Export conversation (Markdown)",
-    copy: "Copy",
-    copied: "Copied",
-    clearField: "Clear",
-    perm: "Permissions",
-    cliNotFound: "claude not found",
-    empty: "Write a command for Claude Code — e.g. “summarize the files in this project”.",
-    ph: "Command for Claude Code…",
-    send: "Send",
-    stop: "Stop",
-    done: "Finished",
-    tokens: "tokens",
-    cliHint:
-      "Claude Code uses your existing terminal login (run `claude` once in a terminal to authenticate). No API key needed.",
-    language: "Language",
-    theme: "Theme",
-    dark: "Dark",
-    light: "Light",
-    fontSize: "Font size",
-    cancel: "Close",
-    proxy: "Proxy (optional)",
-    proxyHint:
-      "If api.anthropic.com is blocked, set your local proxy here; both chat and the terminal route the claude CLI through it.",
-    proxySave: "Save",
-    proxySaved: "Saved",
-    about: "About",
-    version: "Version",
-    website: "Website",
-    madeBy: "Made by",
-    creator: "Amin Asaadi",
-    pickTitle: "Choose project folder",
-    dropHint: "Drop files to add their paths",
-    notLoggedIn:
-      "🔒 You're not logged in to Claude Code.\nOpen a terminal and run:  claude\nComplete the browser login, then try again here.",
-  },
-  fa: {
-    brand: "Claude برای لینوکس",
-    clear: "پاک کردن گفتگو",
-    settings: "تنظیمات",
-    newTab: "تب چت جدید",
-    newTerm: "ترمینال جدید (Claude Code کامل)",
-    newGit: "پنل Git جدید",
-    newRemote: "اتصال SFTP / FTP جدید",
-    newSsh: "اتصال SSH جدید",
-    gitProxy: "پروکسی (اختیاری)",
-    gitProxyHint: "پروکسی اختیاری برای fetch/pull/push — جدا از پروکسی برنامه. خالی = مستقیم.",
-    resume: "ادامه‌ی یک جلسه‌ی قبلی",
-    tab: (n: number) => `چت ${n}`,
-    tabTerm: (n: number) => `ترمینال ${n}`,
-    tabGit: (n: number) => `Git ${n}`,
-    tabRemote: (n: number) => `SFTP ${n}`,
-    tabSsh: (n: number) => `SSH ${n}`,
-    closeConfirm: (title: string) => `«${title}» بسته شود؟`,
-    autoYes: "تأیید خودکار",
-    autoYesHint:
-      "بله به همه‌ی درخواست‌های اجازه (--dangerously-skip-permissions). ترمینال را ری‌استارت می‌کند.",
-    folder: "پوشه‌ی پروژه:",
-    folderPick: "برای انتخاب کلیک کن… (خالی = پوشه‌ی فعلی)",
-    choose: "انتخاب پوشه",
-    terminal: "باز کردن ترمینال بیرونی در این پوشه",
-    split: "تقسیم با یک ترمینال",
-    exportMd: "خروجی گفتگو (Markdown)",
-    copy: "کپی",
-    copied: "کپی شد",
-    clearField: "پاک کردن",
-    perm: "دسترسی‌ها",
-    cliNotFound: "claude یافت نشد",
-    empty: "یک دستور برای Claude Code بنویس — مثلاً «فایل‌های این پروژه را خلاصه کن».",
-    ph: "دستور برای Claude Code…",
-    send: "ارسال",
-    stop: "توقف",
-    done: "تمام شد",
-    tokens: "توکن",
-    cliHint:
-      "Claude Code از لاگین موجودِ ترمینالت استفاده می‌کند (یک‌بار در ترمینال `claude` بزن و احراز هویت کن). به کلید API نیازی نیست.",
-    language: "زبان",
-    theme: "تم",
-    dark: "تیره",
-    light: "روشن",
-    fontSize: "اندازه فونت",
-    cancel: "بستن",
-    proxy: "پراکسی (اختیاری)",
-    proxyHint:
-      "اگر api.anthropic.com فیلتر است، آدرس پراکسی محلی‌ات را اینجا بگذار؛ هم چت و هم ترمینال، CLI claude را از همین پراکسی رد می‌کنند.",
-    proxySave: "ذخیره",
-    proxySaved: "ذخیره شد",
-    about: "درباره",
-    version: "نسخه",
-    website: "وب‌سایت",
-    madeBy: "ساخته‌ی",
-    creator: "امین اسعدی",
-    pickTitle: "انتخاب پوشه‌ی پروژه",
-    dropHint: "فایل‌ها را رها کن تا آدرسشان اضافه شود",
-    notLoggedIn:
-      "🔒 هنوز وارد Claude Code نشده‌ای.\nیک ترمینال باز کن و بزن:  claude\nلاگین مرورگری را کامل کن، بعد دوباره همین‌جا امتحان کن.",
-  },
-} as const;
 
 interface StreamPayload {
   id: string;
@@ -971,28 +841,15 @@ function App() {
           const legacyArgs = tb.termSession ? [] : tb.restored ? ["--continue"] : (extra ?? []);
           return (
             <div key={tb.id} className="term-wrap" style={{ display: tb.id === activeId ? "flex" : "none" }}>
-              <div className="cwd-bar">
-                <label>{t.folder}</label>
-                <input
-                  type="text"
-                  placeholder={t.folderPick}
-                  value={tb.cwd || ""}
-                  readOnly
-                  onClick={() => pickFolderForTab(tb.id)}
-                  style={{ cursor: "pointer" }}
-                />
-                <button className="browse-btn" onClick={() => pickFolderForTab(tb.id)} title={t.choose}>
-                  📁
-                </button>
-                {tb.cwd && (
-                  <button
-                    className="browse-btn"
-                    onClick={() => setTabs((ts) => ts.map((x) => (x.id === tb.id ? { ...x, cwd: "" } : x)))}
-                    title={t.clearField}
-                  >
-                    ✕
-                  </button>
-                )}
+              <CwdBar
+                cwd={tb.cwd}
+                label={t.folder}
+                placeholder={t.folderPick}
+                chooseTitle={t.choose}
+                clearTitle={t.clearField}
+                onPick={() => pickFolderForTab(tb.id)}
+                onClear={() => setTabs((ts) => ts.map((x) => (x.id === tb.id ? { ...x, cwd: "" } : x)))}
+              >
                 <button
                   className={`browse-btn auto-yes ${tb.skipPermissions ? "on" : ""}`}
                   title={t.autoYesHint}
@@ -1004,7 +861,7 @@ function App() {
                 >
                   {tb.skipPermissions ? "✅" : "☑"} {t.autoYes}
                 </button>
-              </div>
+              </CwdBar>
               <TerminalView
                 key={`${tb.cwd}|${tb.skipPermissions ? "y" : "n"}`}
                 termId={tb.id}
@@ -1022,28 +879,15 @@ function App() {
         .filter((tb) => tb.kind === "git")
         .map((tb) => (
           <div key={tb.id} className="term-wrap" style={{ display: tb.id === activeId ? "flex" : "none" }}>
-            <div className="cwd-bar">
-              <label>{t.folder}</label>
-              <input
-                type="text"
-                placeholder={t.folderPick}
-                value={tb.cwd || ""}
-                readOnly
-                onClick={() => pickFolderForTab(tb.id)}
-                style={{ cursor: "pointer" }}
-              />
-              <button className="browse-btn" onClick={() => pickFolderForTab(tb.id)} title={t.choose}>
-                📁
-              </button>
-              {tb.cwd && (
-                <button
-                  className="browse-btn"
-                  onClick={() => setTabs((ts) => ts.map((x) => (x.id === tb.id ? { ...x, cwd: "" } : x)))}
-                  title={t.clearField}
-                >
-                  ✕
-                </button>
-              )}
+            <CwdBar
+              cwd={tb.cwd}
+              label={t.folder}
+              placeholder={t.folderPick}
+              chooseTitle={t.choose}
+              clearTitle={t.clearField}
+              onPick={() => pickFolderForTab(tb.id)}
+              onClear={() => setTabs((ts) => ts.map((x) => (x.id === tb.id ? { ...x, cwd: "" } : x)))}
+            >
               <label className="git-proxy-l" title={t.gitProxyHint}>
                 🌐
               </label>
@@ -1057,7 +901,7 @@ function App() {
                   setTabs((ts) => ts.map((x) => (x.id === tb.id ? { ...x, gitProxy: e.target.value } : x)))
                 }
               />
-            </div>
+            </CwdBar>
             <GitPanel key={tb.cwd} cwd={tb.cwd} lang={lang} proxy={tb.gitProxy || ""} />
           </div>
         ))}

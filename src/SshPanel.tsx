@@ -3,65 +3,10 @@ import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import TerminalView, { type SshConfig } from "./Terminal";
 import { useConfirm } from "./usePrompt";
-
-type Lang = "en" | "fa";
+import { SSH_STR, type Lang } from "./i18n";
+import SavedChips from "./components/SavedChips";
 
 export type { SshConfig };
-
-const S = {
-  en: {
-    name: "Name",
-    namePh: "My server",
-    host: "Host",
-    port: "Port",
-    user: "Username",
-    password: "Password",
-    passwordPh: "(optional — asked in terminal if empty)",
-    key: "Private key",
-    keyPick: "Choose key file…",
-    proxy: "Proxy (optional)",
-    proxyPh: "socks5://127.0.0.1:1080 or 127.0.0.1:8080",
-    proxyHint:
-      "Separate from the app proxy. Routed through SSH ProxyCommand — needs `nc` (netcat-openbsd) installed. Prefix with socks5:// or http:// (default http).",
-    connect: "Connect",
-    disconnect: "Disconnect",
-    reconnect: "Reconnect",
-    dropped: "Connection lost",
-    save: "Save this server",
-    saved: "Saved servers",
-    fillHost: "Enter a host to connect.",
-    connectedTo: "Connected to",
-    del: "Delete",
-    cancel: "Cancel",
-    delConfirm: (n: string) => `Delete saved server "${n}"?`,
-  },
-  fa: {
-    name: "نام",
-    namePh: "سرور من",
-    host: "هاست",
-    port: "پورت",
-    user: "نام کاربری",
-    password: "رمز عبور",
-    passwordPh: "(اختیاری — اگر خالی باشد در ترمینال پرسیده می‌شود)",
-    key: "کلید خصوصی",
-    keyPick: "انتخاب فایل کلید…",
-    proxy: "پروکسی (اختیاری)",
-    proxyPh: "socks5://127.0.0.1:1080 یا 127.0.0.1:8080",
-    proxyHint:
-      "جدا از پروکسی برنامه است. از طریق ProxyCommand در SSH رد می‌شود — به `nc` (netcat-openbsd) نیاز دارد. با socks5:// یا http:// شروع کن (پیش‌فرض http).",
-    connect: "اتصال",
-    disconnect: "قطع",
-    reconnect: "اتصال مجدد",
-    dropped: "اتصال قطع شد",
-    save: "ذخیره‌ی این سرور",
-    saved: "سرورهای ذخیره‌شده",
-    fillHost: "برای اتصال یک هاست وارد کن.",
-    connectedTo: "متصل به",
-    del: "حذف",
-    cancel: "انصراف",
-    delConfirm: (n: string) => `سرور ذخیره‌شده‌ی «${n}» حذف شود؟`,
-  },
-};
 
 function label(c: SshConfig): string {
   return (
@@ -91,7 +36,7 @@ export default function SshPanel({
   onDeleteConnection: (c: SshConfig) => void;
   onUseSaved: (c: SshConfig) => void;
 }) {
-  const t = S[lang];
+  const t = SSH_STR[lang];
   const { confirm, node: confirmNode } = useConfirm();
   const [connected, setConnected] = useState(false);
   // true once the ssh session drops while still on the live view
@@ -137,32 +82,18 @@ export default function SshPanel({
     return (
       <div className="rmt-panel">
         <div className="rmt-form">
-          {saved.length > 0 && (
-            <div className="rmt-saved">
-              <label>{t.saved}</label>
-              <div className="rmt-saved-list">
-                {saved.map((s, i) => (
-                  <span key={i} className="rmt-chip-wrap">
-                    <button className="rmt-chip" onClick={() => onUseSaved(s)}>
-                      🔐 {label(s)}
-                    </button>
-                    <button
-                      className="rmt-chip-del"
-                      title={t.del}
-                      onClick={async () => {
-                        if (
-                          await confirm(t.delConfirm(label(s)), { ok: t.del, cancel: t.cancel, danger: true })
-                        )
-                          onDeleteConnection(s);
-                      }}
-                    >
-                      ✕
-                    </button>
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
+          <SavedChips
+            label={t.saved}
+            icon="🔐"
+            items={saved}
+            chipLabel={label}
+            deleteTitle={t.del}
+            onUse={onUseSaved}
+            onDelete={async (s) => {
+              if (await confirm(t.delConfirm(label(s)), { ok: t.del, cancel: t.cancel, danger: true }))
+                onDeleteConnection(s);
+            }}
+          />
 
           <div className="rmt-row">
             <label>{t.name}</label>

@@ -2,8 +2,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { usePrompt, useConfirm } from "./usePrompt";
-
-type Lang = "en" | "fa";
+import { useToast } from "./useToast";
+import { REMOTE_STR, type Lang } from "./i18n";
+import { fmtSize, fmtTime, parentPath, baseName } from "./utils";
+import SavedChips from "./components/SavedChips";
 
 export interface RemoteConfig {
   protocol: "sftp" | "ftp" | "ftps";
@@ -29,130 +31,11 @@ interface RemoteFile {
   modified: number;
 }
 
-const S = {
-  en: {
-    namePh: "My server",
-    protocol: "Protocol",
-    host: "Host",
-    port: "Port",
-    user: "Username",
-    password: "Password",
-    key: "Private key",
-    keyPick: "Choose key file…",
-    passphrase: "Key passphrase",
-    proxy: "Proxy (optional)",
-    proxyPh: "socks5://127.0.0.1:1080 or 127.0.0.1:8080",
-    proxyHint: "Separate from the app proxy. Empty = direct connection.",
-    connect: "Connect",
-    disconnect: "Disconnect",
-    connecting: "Connecting…",
-    save: "Save this connection",
-    saved: "Saved connections",
-    up: "Up",
-    refresh: "Refresh",
-    upload: "Upload…",
-    newFolder: "New folder",
-    download: "Download",
-    rename: "Rename",
-    del: "Delete",
-    cancel: "Cancel",
-    empty: "Empty folder",
-    name: "Name",
-    size: "Size",
-    modified: "Modified",
-    delConfirm: (n: string) => `Delete "${n}"?`,
-    newFolderPrompt: "New folder name:",
-    renamePrompt: "New name:",
-    downloaded: "Downloaded",
-    uploaded: "Uploaded",
-    done: "Done",
-    dir: "folder",
-    fillHost: "Enter a host to connect.",
-    localFolder: "Local folder",
-    localFolderPh: "Click to choose… (empty = home folder)",
-    localPane: "Local",
-    remotePane: "Server",
-    uploadThis: "Upload to server",
-    noDirDrag: "Dragging folders isn't supported yet — files only.",
-    dragHint: "Drag files between the two panes to upload / download.",
-  },
-  fa: {
-    namePh: "سرور من",
-    protocol: "پروتکل",
-    host: "هاست",
-    port: "پورت",
-    user: "نام کاربری",
-    password: "رمز عبور",
-    key: "کلید خصوصی",
-    keyPick: "انتخاب فایل کلید…",
-    passphrase: "عبارت عبور کلید",
-    proxy: "پروکسی (اختیاری)",
-    proxyPh: "socks5://127.0.0.1:1080 یا 127.0.0.1:8080",
-    proxyHint: "جدا از پروکسی برنامه. خالی = اتصال مستقیم.",
-    connect: "اتصال",
-    disconnect: "قطع",
-    connecting: "در حال اتصال…",
-    save: "ذخیره‌ی این اتصال",
-    saved: "اتصال‌های ذخیره‌شده",
-    up: "بالا",
-    refresh: "تازه‌سازی",
-    upload: "آپلود…",
-    newFolder: "پوشه‌ی جدید",
-    download: "دانلود",
-    rename: "تغییر نام",
-    del: "حذف",
-    cancel: "انصراف",
-    empty: "پوشه‌ی خالی",
-    name: "نام",
-    size: "اندازه",
-    modified: "تغییر",
-    delConfirm: (n: string) => `«${n}» حذف شود؟`,
-    newFolderPrompt: "نام پوشه‌ی جدید:",
-    renamePrompt: "نام جدید:",
-    downloaded: "دانلود شد",
-    uploaded: "آپلود شد",
-    done: "انجام شد",
-    dir: "پوشه",
-    fillHost: "برای اتصال یک هاست وارد کن.",
-    localFolder: "پوشه‌ی لوکال",
-    localFolderPh: "برای انتخاب کلیک کن… (خالی = پوشه‌ی خانه)",
-    localPane: "لوکال",
-    remotePane: "سرور",
-    uploadThis: "آپلود به سرور",
-    noDirDrag: "کشیدن پوشه هنوز پشتیبانی نمی‌شود — فقط فایل.",
-    dragHint: "فایل‌ها را بین دو سمت بکش تا آپلود / دانلود شوند.",
-  },
-};
-
 const DEFAULT_PORT = { sftp: 22, ftp: 21, ftps: 21 } as const;
 
 // the label on a saved chip: the friendly name if set, else protocol://user@host
 function label(c: RemoteConfig): string {
   return c.name?.trim() || `${c.protocol}://${c.username ? `${c.username}@` : ""}${c.host}`;
-}
-
-function fmtSize(n: number, isDir: boolean): string {
-  if (isDir) return "—";
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
-  return `${(n / 1024 / 1024 / 1024).toFixed(1)} GB`;
-}
-function fmtTime(secs: number): string {
-  if (!secs) return "";
-  try {
-    return new Date(secs * 1000).toLocaleString();
-  } catch {
-    return "";
-  }
-}
-function parentPath(p: string): string {
-  if (p === "/" || !p) return "/";
-  const i = p.replace(/\/+$/, "").lastIndexOf("/");
-  return i <= 0 ? "/" : p.slice(0, i);
-}
-function baseName(p: string): string {
-  return p.replace(/\/+$/, "").split("/").pop() || p;
 }
 
 export default function RemotePanel({
@@ -174,7 +57,7 @@ export default function RemotePanel({
   onDeleteConnection: (c: RemoteConfig) => void;
   onUseSaved: (c: RemoteConfig) => void;
 }) {
-  const t = S[lang];
+  const t = REMOTE_STR[lang];
   const [connected, setConnected] = useState(false);
   const [busy, setBusy] = useState(false);
   const [cwd, setCwd] = useState("/");
@@ -182,8 +65,7 @@ export default function RemotePanel({
   // left pane: the local file browser
   const [localCwd, setLocalCwd] = useState("");
   const [localFiles, setLocalFiles] = useState<RemoteFile[]>([]);
-  const [toast, setToast] = useState<string | null>(null);
-  const toastTimer = useRef<number | null>(null);
+  const { toast, flash, clear: clearToast } = useToast(4500);
   // pointer-driven drag between the two panes (HTML5 DnD is swallowed by
   // Tauri's native file drag-drop handler on webkit, same as tab reordering)
   const dragRef = useRef<{
@@ -198,12 +80,6 @@ export default function RemotePanel({
   const [dropTarget, setDropTarget] = useState<"local" | "remote" | null>(null);
   const { ask, node: promptNode } = usePrompt();
   const { confirm, node: confirmNode } = useConfirm();
-
-  const flash = useCallback((msg: string) => {
-    setToast(msg);
-    if (toastTimer.current) window.clearTimeout(toastTimer.current);
-    toastTimer.current = window.setTimeout(() => setToast(null), 4500);
-  }, []);
 
   const set = (patch: Partial<RemoteConfig>) => onConfigChange({ ...config, ...patch });
 
@@ -454,40 +330,19 @@ export default function RemotePanel({
     return (
       <div className="rmt-panel">
         <div className="rmt-form">
-          {saved.length > 0 && (
-            <div className="rmt-saved">
-              <label>{t.saved}</label>
-              <div className="rmt-saved-list">
-                {saved.map((s, i) => (
-                  <span key={i} className="rmt-chip-wrap">
-                    <button
-                      className="rmt-chip"
-                      onClick={() => onUseSaved(s)}
-                      title={`${s.protocol}://${s.username ? `${s.username}@` : ""}${s.host}`}
-                    >
-                      🌐 {label(s)}
-                    </button>
-                    <button
-                      className="rmt-chip-del"
-                      title={t.del}
-                      onClick={async () => {
-                        if (
-                          await confirm(t.delConfirm(label(s)), {
-                            ok: t.del,
-                            cancel: t.cancel,
-                            danger: true,
-                          })
-                        )
-                          onDeleteConnection(s);
-                      }}
-                    >
-                      ✕
-                    </button>
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
+          <SavedChips
+            label={t.saved}
+            icon="🌐"
+            items={saved}
+            chipLabel={label}
+            chipTitle={(s) => `${s.protocol}://${s.username ? `${s.username}@` : ""}${s.host}`}
+            deleteTitle={t.del}
+            onUse={onUseSaved}
+            onDelete={async (s) => {
+              if (await confirm(t.delConfirm(label(s)), { ok: t.del, cancel: t.cancel, danger: true }))
+                onDeleteConnection(s);
+            }}
+          />
 
           <div className="rmt-row">
             <label>{t.name}</label>
@@ -609,7 +464,7 @@ export default function RemotePanel({
           </div>
         </div>
         {toast && (
-          <div className="rmt-toast" onClick={() => setToast(null)}>
+          <div className="rmt-toast" onClick={clearToast}>
             {toast}
           </div>
         )}
@@ -750,7 +605,7 @@ export default function RemotePanel({
       )}
 
       {toast && (
-        <div className="rmt-toast" onClick={() => setToast(null)}>
+        <div className="rmt-toast" onClick={clearToast}>
           {toast}
         </div>
       )}
