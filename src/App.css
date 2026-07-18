@@ -848,6 +848,15 @@ body,
   scrollbar-width: thin;
   scrollbar-color: var(--muted) transparent;
 }
+/* xterm v6 draws a VS Code-style overlay slider (colored via the terminal
+   theme) that fades out by default — keep it from disappearing so the
+   terminal has a visible, grabbable scrollbar like every other panel */
+.xterm .xterm-scrollable-element > .scrollbar {
+  opacity: 1 !important;
+}
+.xterm .xterm-scrollable-element > .scrollbar > .slider {
+  border-radius: 6px;
+}
 
 /* ---- Git panel ---- */
 .git-panel {

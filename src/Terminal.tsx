@@ -66,6 +66,12 @@ export default function TerminalView({
         foreground: "#ece6df",
         cursor: "#d97757",
         selectionBackground: "#3a342e",
+        // xterm draws its own scrollbar slider (not a native ::-webkit one) and
+        // colors it from the theme — unset means invisible, so give it visible
+        // colors matching the app (muted, accent on hover/drag)
+        scrollbarSliderBackground: "rgba(156, 148, 138, 0.4)",
+        scrollbarSliderHoverBackground: "rgba(156, 148, 138, 0.65)",
+        scrollbarSliderActiveBackground: "rgba(217, 119, 87, 0.9)",
       },
     });
     const fit = new FitAddon();
