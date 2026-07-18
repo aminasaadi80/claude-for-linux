@@ -814,13 +814,39 @@ body,
   font-weight: 600;
 }
 
-/* scrollbar */
+/* Scrollbars — the webkit2gtk webview hides its overlay bars almost entirely,
+   so force classic, always-visible, higher-contrast bars everywhere (chat,
+   terminal, FTP, Git, lists…). */
+* {
+  scrollbar-width: thin; /* Firefox / CSS standard */
+  scrollbar-color: var(--muted) transparent;
+}
 ::-webkit-scrollbar {
-  width: 10px;
+  width: 12px;
+  height: 12px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--border);
-  border-radius: 6px;
+  background: var(--muted);
+  border-radius: 8px;
+  /* transparent border + padding-box clip = a slim, inset thumb */
+  border: 3px solid transparent;
+  background-clip: padding-box;
+  min-height: 40px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--accent);
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+/* xterm keeps its scrollback bar on its own viewport element */
+.xterm-viewport {
+  scrollbar-width: thin;
+  scrollbar-color: var(--muted) transparent;
 }
 
 /* ---- Git panel ---- */
