@@ -52,6 +52,10 @@ export default function TerminalView({
   claudeSession?: string;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
+  // the live xterm instance, so the scroll buttons can drive it (claude enables
+  // mouse reporting and eats the wheel, so an explicit control is the reliable
+  // way to scroll back through output)
+  const termRef = useRef<Terminal | null>(null);
   // keep the latest onExit without re-running the terminal effect
   const onExitRef = useRef(onExit);
   onExitRef.current = onExit;
@@ -69,11 +73,12 @@ export default function TerminalView({
         // xterm draws its own scrollbar slider (not a native ::-webkit one) and
         // colors it from the theme — unset means invisible, so give it visible
         // colors matching the app (muted, accent on hover/drag)
-        scrollbarSliderBackground: "rgba(156, 148, 138, 0.4)",
-        scrollbarSliderHoverBackground: "rgba(156, 148, 138, 0.65)",
-        scrollbarSliderActiveBackground: "rgba(217, 119, 87, 0.9)",
+        scrollbarSliderBackground: "rgba(156, 148, 138, 0.55)",
+        scrollbarSliderHoverBackground: "rgba(156, 148, 138, 0.8)",
+        scrollbarSliderActiveBackground: "rgba(217, 119, 87, 0.95)",
       },
     });
+    termRef.current = term;
     const fit = new FitAddon();
     term.loadAddon(fit);
     // clickable URLs — open in the system browser (window.open is a no-op in the webview)
@@ -209,6 +214,7 @@ export default function TerminalView({
       unData.then((f) => f());
       unExit.then((f) => f());
       invoke("pty_close", { termId }).catch(() => {});
+      termRef.current = null;
       term.dispose();
     };
     // the terminal must only remount on termId — cwd/args/ssh changes are
@@ -216,5 +222,32 @@ export default function TerminalView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [termId]);
 
-  return <div className={`xterm-host${flush ? " flush" : ""}`} ref={hostRef} />;
+  const scroll = (dir: "up" | "down" | "top" | "bottom") => {
+    const term = termRef.current;
+    if (!term) return;
+    if (dir === "top") term.scrollToTop();
+    else if (dir === "bottom") term.scrollToBottom();
+    else term.scrollLines(dir === "up" ? -(term.rows - 1) : term.rows - 1); // ~a page
+    term.focus();
+  };
+
+  return (
+    <div className={`xterm-host${flush ? " flush" : ""}`}>
+      <div className="term-scroll-ctl">
+        <button title="Scroll to top" onClick={() => scroll("top")}>
+          ⤒
+        </button>
+        <button title="Page up" onClick={() => scroll("up")}>
+          ⌃
+        </button>
+        <button title="Page down" onClick={() => scroll("down")}>
+          ⌄
+        </button>
+        <button title="Scroll to bottom" onClick={() => scroll("bottom")}>
+          ⤓
+        </button>
+      </div>
+      <div className="xterm-mount" ref={hostRef} />
+    </div>
+  );
 }

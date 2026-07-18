@@ -643,17 +643,53 @@ body,
 .xterm-host {
   flex: 1;
   min-height: 0;
-  /* extra bottom gap so Claude's input box / status line isn't clipped */
-  padding: 8px 10px 104px;
   background: #1a1714;
   overflow: hidden;
+  position: relative; /* anchor the scroll buttons */
+}
+.xterm-mount {
+  height: 100%;
+  /* extra bottom gap so Claude's input box / status line isn't clipped */
+  padding: 8px 10px 104px;
 }
 .xterm-host .xterm {
   height: 100%;
 }
 /* plain shells / ssh don't need the big bottom gap claude's input box needs */
-.xterm-host.flush {
+.xterm-host.flush .xterm-mount {
   padding-bottom: 12px;
+}
+/* explicit scroll controls — reliable even when the running program (claude)
+   captures the mouse wheel; shown on hover, top-right of the terminal */
+.term-scroll-ctl {
+  position: absolute;
+  top: 8px;
+  right: 6px;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.xterm-host:hover .term-scroll-ctl {
+  opacity: 0.9;
+}
+.term-scroll-ctl button {
+  width: 24px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+}
+.term-scroll-ctl button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
 }
 /* ssh: file-browser-style top bar + terminal filling the rest */
 .ssh-live .xterm-host {
@@ -848,12 +884,10 @@ body,
   scrollbar-width: thin;
   scrollbar-color: var(--muted) transparent;
 }
-/* xterm v6 draws a VS Code-style overlay slider (colored via the terminal
-   theme) that fades out by default — keep it from disappearing so the
-   terminal has a visible, grabbable scrollbar like every other panel */
-.xterm .xterm-scrollable-element > .scrollbar {
-  opacity: 1 !important;
-}
+/* xterm v6 draws a VS Code-style overlay slider, colored via the terminal
+   theme. It only has a thumb when there's scrollback (none while a full-screen
+   TUI like claude owns the screen), and fades when idle — so the explicit
+   scroll buttons above are the dependable control; this just rounds the thumb. */
 .xterm .xterm-scrollable-element > .scrollbar > .slider {
   border-radius: 6px;
 }
