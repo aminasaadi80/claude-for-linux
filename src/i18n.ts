@@ -50,6 +50,12 @@ export const APP_STR = {
     dark: "Dark",
     light: "Light",
     fontSize: "Font size",
+    termFlat: "Flat text mode (Persian-friendly)",
+    termFlatHint:
+      "Runs Claude with --ax-screen-reader: no drawn boxes, and real scrollback so the wheel and scroll buttons work. Combine with the 📖 button on a terminal to read Persian properly right-to-left. Restarts terminals.",
+    readable: "Readable view (right-to-left)",
+    readableBack: "Back to terminal (to type)",
+    readableEmpty: "Nothing to show yet.",
     termEnglish: "Terminal replies in English",
     termEnglishHint:
       "The terminal can't display right-to-left text, so Persian answers come out scrambled there. This asks Claude to answer in English in terminal tabs only — chat tabs stay Persian. Changing it restarts terminals.",
@@ -119,6 +125,12 @@ export const APP_STR = {
     dark: "تیره",
     light: "روشن",
     fontSize: "اندازه فونت",
+    termFlat: "حالت متن ساده (مناسب فارسی)",
+    termFlatHint:
+      "claude را با ‎--ax-screen-reader اجرا می‌کند: بدون کادرکشی، و با scrollback واقعی که چرخ موس و دکمه‌های اسکرول را کار می‌اندازد. همراه با دکمه‌ی 📖 روی ترمینال، فارسی را درست و راست‌به‌چپ می‌خوانی. ترمینال‌ها را ری‌استارت می‌کند.",
+    readable: "نمای خوانا (راست‌به‌چپ)",
+    readableBack: "بازگشت به ترمینال (برای تایپ)",
+    readableEmpty: "هنوز چیزی برای نمایش نیست.",
     termEnglish: "پاسخ انگلیسی در ترمینال",
     termEnglishHint:
       "ترمینال متن راست‌به‌چپ را نمایش نمی‌دهد و جواب فارسی در آن به‌هم‌ریخته می‌شود. این گزینه فقط به تب‌های ترمینال می‌گوید انگلیسی جواب بدهد — تب‌های چت فارسی می‌مانند. تغییرش ترمینال‌ها را ری‌استارت می‌کند.",

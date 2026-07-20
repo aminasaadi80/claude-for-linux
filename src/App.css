@@ -691,6 +691,63 @@ body,
   border-color: var(--accent);
   color: var(--accent);
 }
+.term-scroll-ctl button.on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+/* readable (RTL) mirror of the terminal text — plain HTML so the browser can
+   apply the real Unicode BiDi algorithm that xterm lacks */
+.term-readable {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+.term-readable-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 12px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--muted);
+}
+.term-readable-bar button {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.term-readable-bar button:hover {
+  border-color: var(--accent);
+}
+.term-readable-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 10px 14px;
+}
+.term-readable-line {
+  font-family: "Vazir Code Hack", "Vazirmatn", ui-monospace, monospace;
+  font-size: 13px;
+  line-height: 1.9;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text);
+}
+.term-readable-empty {
+  color: var(--muted);
+  font-size: 13px;
+}
 /* ssh: file-browser-style top bar + terminal filling the rest */
 .ssh-live .xterm-host {
   flex: 1;

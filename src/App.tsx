@@ -156,6 +156,9 @@ function App() {
   // ask claude to answer in English in terminal tabs (xterm has no BiDi, so
   // Persian answers render scrambled there); chat tabs are unaffected
   const [termEnglish, setTermEnglish] = useState<boolean>(() => localStorage.getItem("termEnglish") === "1");
+  // run claude in screen-reader mode: flat line output, no drawn boxes, no
+  // alternate screen — which also restores real scrollback
+  const [termFlat, setTermFlat] = useState<boolean>(() => localStorage.getItem("termFlat") === "1");
 
   const [showSettings, setShowSettings] = useState(false);
   // saved SFTP/FTP connections (persisted locally; may include passwords)
@@ -220,6 +223,9 @@ function App() {
   useEffect(() => {
     localStorage.setItem("termEnglish", termEnglish ? "1" : "0");
   }, [termEnglish]);
+  useEffect(() => {
+    localStorage.setItem("termFlat", termFlat ? "1" : "0");
+  }, [termFlat]);
 
   useEffect(() => {
     invoke<Settings>("load_settings").then((s) => {
@@ -845,16 +851,18 @@ function App() {
                 </button>
               </CwdBar>
               <TerminalView
-                key={`${tb.cwd}|${tb.skipPermissions ? "y" : "n"}|${termEnglish ? "en" : "any"}`}
+                key={`${tb.cwd}|${tb.skipPermissions ? "y" : "n"}|${termEnglish ? "en" : "any"}|${termFlat ? "flat" : "tui"}`}
                 termId={tb.id}
                 cwd={tb.cwd}
                 claudeSession={tb.termSession}
                 fontSize={fontSize}
                 fontFamily={termFont}
+                readableLabels={{ open: t.readable, back: t.readableBack, empty: t.readableEmpty }}
                 extraArgs={[
                   ...legacyArgs,
                   ...(tb.skipPermissions ? ["--dangerously-skip-permissions"] : []),
                   ...(termEnglish ? ["--append-system-prompt", TERM_ENGLISH_PROMPT] : []),
+                  ...(termFlat ? ["--ax-screen-reader"] : []),
                 ]}
               />
             </div>
@@ -970,6 +978,7 @@ function App() {
           fontSize={fontSize}
           termFontId={termFontId}
           termEnglish={termEnglish}
+          termFlat={termFlat}
           proxyDraft={proxyDraft}
           savedProxy={settings.proxy}
           appVersion={appVersion}
@@ -979,6 +988,7 @@ function App() {
           onSetFontSize={setFontSizeState}
           onSetTermFont={setTermFontId}
           onSetTermEnglish={setTermEnglish}
+          onSetTermFlat={setTermFlat}
           onProxyDraftChange={setProxyDraft}
           onSaveProxy={saveProxy}
         />

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { Terminal } from "@xterm/xterm";
@@ -55,6 +55,7 @@ export default function TerminalView({
   onExit,
   claudeSession,
   fontFamily,
+  readableLabels,
 }: {
   termId: string;
   cwd: string;
@@ -71,6 +72,8 @@ export default function TerminalView({
   claudeSession?: string;
   /** terminal font stack; must be monospace or columns misalign */
   fontFamily?: string;
+  /** labels for the readable-view control (from the caller's i18n table) */
+  readableLabels?: { open: string; back: string; empty: string };
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
   // the live xterm instance, so the scroll buttons can drive it (claude enables
@@ -255,6 +258,34 @@ export default function TerminalView({
     invoke("pty_resize", { termId, rows: term.rows, cols: term.cols }).catch(() => {});
   }, [fontFamily, fontSize, termId]);
 
+  // ---- readable (right-to-left) view -------------------------------------
+  // xterm has no BiDi, so Persian lines come out with their word order
+  // reversed. Rather than reordering the bytes ourselves (which the browser
+  // would then re-reorder), we lift the terminal's plain text out of xterm's
+  // buffer and let the browser apply the real Unicode BiDi algorithm to it via
+  // dir="auto" — the same mechanism that already works in the chat tab.
+  const [readable, setReadable] = useState(false);
+  const [lines, setLines] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (!readable) return;
+    const snapshot = () => {
+      const term = termRef.current;
+      if (!term) return;
+      const buf = term.buffer.active;
+      const out: string[] = [];
+      // cap the history we mirror so very long sessions stay responsive
+      const start = Math.max(0, buf.length - 1000);
+      for (let i = start; i < buf.length; i++) out.push(buf.getLine(i)?.translateToString(true) ?? "");
+      // drop the run of empty lines xterm keeps below the cursor
+      while (out.length && out[out.length - 1].trim() === "") out.pop();
+      setLines(out);
+    };
+    snapshot();
+    const id = window.setInterval(snapshot, 600); // follow live output
+    return () => window.clearInterval(id);
+  }, [readable]);
+
   const scroll = (dir: "up" | "down" | "top" | "bottom") => {
     const term = termRef.current;
     if (!term) return;
@@ -279,7 +310,34 @@ export default function TerminalView({
         <button title="Scroll to bottom" onClick={() => scroll("bottom")}>
           ⤓
         </button>
+        <button
+          className={readable ? "on" : ""}
+          title={readable ? readableLabels?.back : readableLabels?.open}
+          onClick={() => setReadable((v) => !v)}
+        >
+          {readable ? "⌨" : "📖"}
+        </button>
       </div>
+
+      {readable && (
+        <div className="term-readable" onDoubleClick={() => setReadable(false)}>
+          <div className="term-readable-bar">
+            <span>📖 {readableLabels?.open}</span>
+            <button onClick={() => setReadable(false)}>✕ {readableLabels?.back}</button>
+          </div>
+          <div className="term-readable-body">
+            {lines.length === 0 && <div className="term-readable-empty">{readableLabels?.empty}</div>}
+            {lines.map((l, i) => (
+              // dir="auto" per line: the browser runs the full Unicode BiDi
+              // algorithm, so Persian reads right-to-left and English doesn't
+              <div key={i} className="term-readable-line" dir="auto">
+                {l || " "}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="xterm-mount" ref={hostRef} />
     </div>
   );
