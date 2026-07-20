@@ -54,6 +54,14 @@ async function withRemoteSecret(c: RemoteConfig): Promise<RemoteConfig> {
   }
 }
 
+/** Appended to terminal claude launches when "Terminal replies in English" is
+ *  on: xterm.js has no BiDi, so right-to-left answers render scrambled. */
+const TERM_ENGLISH_PROMPT =
+  "This session runs in a terminal that cannot display right-to-left text: " +
+  "Persian/Arabic output appears scrambled and unreadable there. Always write " +
+  "your replies in English, even when the user writes to you in Persian. Do " +
+  "not translate code, file paths, commands, or identifiers.";
+
 interface StreamPayload {
   id: string;
   text: string;
@@ -141,6 +149,9 @@ function App() {
   // terminal font (id from TERM_FONTS) — persisted like theme/font size
   const [termFontId, setTermFontId] = useState<string>(() => localStorage.getItem("termFont") || "default");
   const termFont = (TERM_FONTS.find((f) => f.id === termFontId) ?? TERM_FONTS[0]).stack;
+  // ask claude to answer in English in terminal tabs (xterm has no BiDi, so
+  // Persian answers render scrambled there); chat tabs are unaffected
+  const [termEnglish, setTermEnglish] = useState<boolean>(() => localStorage.getItem("termEnglish") === "1");
 
   const [showSettings, setShowSettings] = useState(false);
   // saved SFTP/FTP connections (persisted locally; may include passwords)
@@ -202,6 +213,9 @@ function App() {
   useEffect(() => {
     localStorage.setItem("termFont", termFontId);
   }, [termFontId]);
+  useEffect(() => {
+    localStorage.setItem("termEnglish", termEnglish ? "1" : "0");
+  }, [termEnglish]);
 
   useEffect(() => {
     invoke<Settings>("load_settings").then((s) => {
@@ -827,13 +841,17 @@ function App() {
                 </button>
               </CwdBar>
               <TerminalView
-                key={`${tb.cwd}|${tb.skipPermissions ? "y" : "n"}`}
+                key={`${tb.cwd}|${tb.skipPermissions ? "y" : "n"}|${termEnglish ? "en" : "any"}`}
                 termId={tb.id}
                 cwd={tb.cwd}
                 claudeSession={tb.termSession}
                 fontSize={fontSize}
                 fontFamily={termFont}
-                extraArgs={[...legacyArgs, ...(tb.skipPermissions ? ["--dangerously-skip-permissions"] : [])]}
+                extraArgs={[
+                  ...legacyArgs,
+                  ...(tb.skipPermissions ? ["--dangerously-skip-permissions"] : []),
+                  ...(termEnglish ? ["--append-system-prompt", TERM_ENGLISH_PROMPT] : []),
+                ]}
               />
             </div>
           );
@@ -947,6 +965,7 @@ function App() {
           theme={theme}
           fontSize={fontSize}
           termFontId={termFontId}
+          termEnglish={termEnglish}
           proxyDraft={proxyDraft}
           savedProxy={settings.proxy}
           appVersion={appVersion}
@@ -955,6 +974,7 @@ function App() {
           onSetTheme={setThemeState}
           onSetFontSize={setFontSizeState}
           onSetTermFont={setTermFontId}
+          onSetTermEnglish={setTermEnglish}
           onProxyDraftChange={setProxyDraft}
           onSaveProxy={saveProxy}
         />

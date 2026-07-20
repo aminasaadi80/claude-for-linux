@@ -12,6 +12,7 @@ export default function SettingsModal({
   theme,
   fontSize,
   termFontId,
+  termEnglish,
   proxyDraft,
   savedProxy,
   appVersion,
@@ -20,6 +21,7 @@ export default function SettingsModal({
   onSetTheme,
   onSetFontSize,
   onSetTermFont,
+  onSetTermEnglish,
   onProxyDraftChange,
   onSaveProxy,
 }: {
@@ -27,6 +29,7 @@ export default function SettingsModal({
   theme: Theme;
   fontSize: number;
   termFontId: string;
+  termEnglish: boolean;
   proxyDraft: string;
   /** the proxy value currently persisted in settings (for the Save/Saved state) */
   savedProxy: string;
@@ -36,6 +39,7 @@ export default function SettingsModal({
   onSetTheme: (th: Theme) => void;
   onSetFontSize: (px: number) => void;
   onSetTermFont: (id: string) => void;
+  onSetTermEnglish: (v: boolean) => void;
   onProxyDraftChange: (v: string) => void;
   onSaveProxy: () => void;
 }) {
@@ -91,6 +95,17 @@ export default function SettingsModal({
           ))}
         </select>
         <p className="hint">{t.termFontHint}</p>
+
+        <label style={{ marginTop: 14 }}>{t.termEnglish}</label>
+        <div className="lang-switch">
+          <button className={termEnglish ? "active" : ""} onClick={() => onSetTermEnglish(true)}>
+            {t.on}
+          </button>
+          <button className={!termEnglish ? "active" : ""} onClick={() => onSetTermEnglish(false)}>
+            {t.off}
+          </button>
+        </div>
+        <p className="hint">{t.termEnglishHint}</p>
 
         <label style={{ marginTop: 14 }}>{t.proxy}</label>
         <div className="proxy-row">

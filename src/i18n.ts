@@ -50,6 +50,11 @@ export const APP_STR = {
     dark: "Dark",
     light: "Light",
     fontSize: "Font size",
+    termEnglish: "Terminal replies in English",
+    termEnglishHint:
+      "The terminal can't display right-to-left text, so Persian answers come out scrambled there. This asks Claude to answer in English in terminal tabs only — chat tabs stay Persian. Changing it restarts terminals.",
+    on: "On",
+    off: "Off",
     termFont: "Terminal font",
     termFontHint:
       "Must be monospace. “Vazir Code Hack” renders Persian correctly while keeping columns aligned.",
@@ -114,6 +119,11 @@ export const APP_STR = {
     dark: "تیره",
     light: "روشن",
     fontSize: "اندازه فونت",
+    termEnglish: "پاسخ انگلیسی در ترمینال",
+    termEnglishHint:
+      "ترمینال متن راست‌به‌چپ را نمایش نمی‌دهد و جواب فارسی در آن به‌هم‌ریخته می‌شود. این گزینه فقط به تب‌های ترمینال می‌گوید انگلیسی جواب بدهد — تب‌های چت فارسی می‌مانند. تغییرش ترمینال‌ها را ری‌استارت می‌کند.",
+    on: "روشن",
+    off: "خاموش",
     termFont: "فونت ترمینال",
     termFontHint:
       "باید مونواسپیس باشد. «Vazir Code Hack» فارسی را درست نشان می‌دهد و ستون‌ها هم به‌هم نمی‌ریزد.",
