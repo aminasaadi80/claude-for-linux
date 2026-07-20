@@ -56,11 +56,15 @@ async function withRemoteSecret(c: RemoteConfig): Promise<RemoteConfig> {
 
 /** Appended to terminal claude launches when "Terminal replies in English" is
  *  on: xterm.js has no BiDi, so right-to-left answers render scrambled. */
+/* Wording matters: a politely-phrased version of this was simply ignored —
+ * matching the user's language outweighs a soft request. The hard framing
+ * below was verified to actually switch the replies to English. */
 const TERM_ENGLISH_PROMPT =
-  "This session runs in a terminal that cannot display right-to-left text: " +
-  "Persian/Arabic output appears scrambled and unreadable there. Always write " +
-  "your replies in English, even when the user writes to you in Persian. Do " +
-  "not translate code, file paths, commands, or identifiers.";
+  "CRITICAL OUTPUT CONSTRAINT: Your replies MUST be written in English only. " +
+  "This session runs in a terminal that cannot render right-to-left script — " +
+  "Persian/Arabic text appears scrambled and unreadable there. Never reply in " +
+  "Persian, regardless of the language the user writes in. Do not translate " +
+  "code, file paths, commands, or identifiers.";
 
 interface StreamPayload {
   id: string;
