@@ -118,7 +118,11 @@ export default function ChatView({
               ) : (
                 <div key={i} className={`msg ${m.role} ${m.error ? "err" : ""}`}>
                   <div className="avatar">{m.role === "user" ? "🧑" : "✳"}</div>
-                  <div className="bubble">
+                  {/* dir="auto" lets the browser run the real Unicode BiDi
+                      algorithm per message: Persian renders right-to-left,
+                      English left-to-right, mixed content correctly either
+                      way — regardless of the UI language */}
+                  <div className="bubble" dir="auto">
                     {m.role === "assistant" && m.content ? (
                       <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
                         {m.content}
@@ -154,6 +158,7 @@ export default function ChatView({
               onKeyDown={onKeyDown}
               placeholder={t.ph}
               rows={1}
+              dir="auto"
             />
             {busy ? (
               <button className="stop-btn" onClick={onStop}>
