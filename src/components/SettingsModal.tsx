@@ -1,5 +1,6 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { APP_STR, type Lang } from "../i18n";
+import { TERM_FONTS } from "../Terminal";
 
 const SITE_URL = "https://aminasaadi80.github.io/claude-for-linux/";
 
@@ -10,6 +11,7 @@ export default function SettingsModal({
   lang,
   theme,
   fontSize,
+  termFontId,
   proxyDraft,
   savedProxy,
   appVersion,
@@ -17,12 +19,14 @@ export default function SettingsModal({
   onSetLang,
   onSetTheme,
   onSetFontSize,
+  onSetTermFont,
   onProxyDraftChange,
   onSaveProxy,
 }: {
   lang: Lang;
   theme: Theme;
   fontSize: number;
+  termFontId: string;
   proxyDraft: string;
   /** the proxy value currently persisted in settings (for the Save/Saved state) */
   savedProxy: string;
@@ -31,6 +35,7 @@ export default function SettingsModal({
   onSetLang: (l: Lang) => void;
   onSetTheme: (th: Theme) => void;
   onSetFontSize: (px: number) => void;
+  onSetTermFont: (id: string) => void;
   onProxyDraftChange: (v: string) => void;
   onSaveProxy: () => void;
 }) {
@@ -71,6 +76,21 @@ export default function SettingsModal({
           onChange={(e) => onSetFontSize(Number(e.target.value))}
           style={{ width: "100%" }}
         />
+
+        <label style={{ marginTop: 14 }}>{t.termFont}</label>
+        <select
+          className="perm-select"
+          style={{ width: "100%" }}
+          value={termFontId}
+          onChange={(e) => onSetTermFont(e.target.value)}
+        >
+          {TERM_FONTS.map((f) => (
+            <option key={f.id} value={f.id}>
+              {f.label}
+            </option>
+          ))}
+        </select>
+        <p className="hint">{t.termFontHint}</p>
 
         <label style={{ marginTop: 14 }}>{t.proxy}</label>
         <div className="proxy-row">

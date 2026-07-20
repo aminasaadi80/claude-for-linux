@@ -50,6 +50,9 @@ export const APP_STR = {
     dark: "Dark",
     light: "Light",
     fontSize: "Font size",
+    termFont: "Terminal font",
+    termFontHint:
+      "Must be monospace. “Vazir Code Hack” renders Persian correctly while keeping columns aligned.",
     cancel: "Close",
     proxy: "Proxy (optional)",
     proxyHint:
@@ -111,6 +114,9 @@ export const APP_STR = {
     dark: "تیره",
     light: "روشن",
     fontSize: "اندازه فونت",
+    termFont: "فونت ترمینال",
+    termFontHint:
+      "باید مونواسپیس باشد. «Vazir Code Hack» فارسی را درست نشان می‌دهد و ستون‌ها هم به‌هم نمی‌ریزد.",
     cancel: "بستن",
     proxy: "پراکسی (اختیاری)",
     proxyHint:

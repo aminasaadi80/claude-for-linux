@@ -7,7 +7,7 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getVersion } from "@tauri-apps/api/app";
 import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
 import "highlight.js/styles/github-dark.css";
-import TerminalView from "./Terminal";
+import TerminalView, { TERM_FONTS } from "./Terminal";
 import GitPanel from "./GitPanel";
 import RemotePanel, { type RemoteConfig } from "./RemotePanel";
 import SshPanel, { type SshConfig } from "./SshPanel";
@@ -138,6 +138,9 @@ function App() {
 
   const [theme, setThemeState] = useState<Theme>(() => (localStorage.getItem("theme") as Theme) || "dark");
   const [fontSize, setFontSizeState] = useState<number>(() => Number(localStorage.getItem("fontSize")) || 14);
+  // terminal font (id from TERM_FONTS) — persisted like theme/font size
+  const [termFontId, setTermFontId] = useState<string>(() => localStorage.getItem("termFont") || "default");
+  const termFont = (TERM_FONTS.find((f) => f.id === termFontId) ?? TERM_FONTS[0]).stack;
 
   const [showSettings, setShowSettings] = useState(false);
   // saved SFTP/FTP connections (persisted locally; may include passwords)
@@ -196,6 +199,9 @@ function App() {
     document.documentElement.style.setProperty("--chat-font", fontSize + "px");
     localStorage.setItem("fontSize", String(fontSize));
   }, [fontSize]);
+  useEffect(() => {
+    localStorage.setItem("termFont", termFontId);
+  }, [termFontId]);
 
   useEffect(() => {
     invoke<Settings>("load_settings").then((s) => {
@@ -826,6 +832,7 @@ function App() {
                 cwd={tb.cwd}
                 claudeSession={tb.termSession}
                 fontSize={fontSize}
+                fontFamily={termFont}
                 extraArgs={[...legacyArgs, ...(tb.skipPermissions ? ["--dangerously-skip-permissions"] : [])]}
               />
             </div>
@@ -893,6 +900,7 @@ function App() {
               saved={savedSsh}
               lang={lang}
               fontSize={fontSize}
+              fontFamily={termFont}
               onConfigChange={(c) => setTabSsh(tb.id, c)}
               onSaveConnection={saveSshServer}
               onDeleteConnection={deleteSshServer}
@@ -906,6 +914,7 @@ function App() {
           tab={activeTab}
           lang={lang}
           fontSize={fontSize}
+          termFont={termFont}
           input={input}
           imgPreview={imgPreview}
           busy={busy}
@@ -937,6 +946,7 @@ function App() {
           lang={lang}
           theme={theme}
           fontSize={fontSize}
+          termFontId={termFontId}
           proxyDraft={proxyDraft}
           savedProxy={settings.proxy}
           appVersion={appVersion}
@@ -944,6 +954,7 @@ function App() {
           onSetLang={setLang}
           onSetTheme={setThemeState}
           onSetFontSize={setFontSizeState}
+          onSetTermFont={setTermFontId}
           onProxyDraftChange={setProxyDraft}
           onSaveProxy={saveProxy}
         />

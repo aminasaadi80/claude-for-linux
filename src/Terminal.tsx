@@ -14,6 +14,24 @@ function b64ToBytes(b64: string): Uint8Array {
   return arr;
 }
 
+/** Terminal font stacks. All must be monospace — a proportional font (plain
+ *  Vazirmatn) breaks column alignment in TUIs like claude. "Vazir Code Hack"
+ *  pairs Hack for Latin/box-drawing with Vazir for Persian. */
+export const DEFAULT_TERM_FONT = 'ui-monospace, "JetBrains Mono", "Cascadia Code", monospace';
+export const TERM_FONTS: { id: string; label: string; stack: string }[] = [
+  { id: "default", label: "Default (JetBrains Mono)", stack: DEFAULT_TERM_FONT },
+  {
+    id: "vazir-code-hack",
+    label: "Vazir Code Hack (Persian + Latin)",
+    stack: '"Vazir Code Hack", "Vazir Code", ui-monospace, monospace',
+  },
+  {
+    id: "vazir-code",
+    label: "Vazir Code",
+    stack: '"Vazir Code", ui-monospace, monospace',
+  },
+];
+
 export interface SshConfig {
   name?: string;
   host: string;
@@ -36,6 +54,7 @@ export default function TerminalView({
   flush,
   onExit,
   claudeSession,
+  fontFamily,
 }: {
   termId: string;
   cwd: string;
@@ -50,19 +69,22 @@ export default function TerminalView({
   /** per-tab claude session id; the backend resumes it if it exists for this
    *  folder, else creates it — so same-folder tabs stay independent */
   claudeSession?: string;
+  /** terminal font stack; must be monospace or columns misalign */
+  fontFamily?: string;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
   // the live xterm instance, so the scroll buttons can drive it (claude enables
   // mouse reporting and eats the wheel, so an explicit control is the reliable
   // way to scroll back through output)
   const termRef = useRef<Terminal | null>(null);
+  const fitRef = useRef<FitAddon | null>(null);
   // keep the latest onExit without re-running the terminal effect
   const onExitRef = useRef(onExit);
   onExitRef.current = onExit;
 
   useEffect(() => {
     const term = new Terminal({
-      fontFamily: 'ui-monospace, "JetBrains Mono", "Cascadia Code", monospace',
+      fontFamily: fontFamily || DEFAULT_TERM_FONT,
       fontSize: fontSize ?? 13,
       cursorBlink: true,
       theme: {
@@ -80,6 +102,7 @@ export default function TerminalView({
     });
     termRef.current = term;
     const fit = new FitAddon();
+    fitRef.current = fit;
     term.loadAddon(fit);
     // clickable URLs — open in the system browser (window.open is a no-op in the webview)
     term.loadAddon(new WebLinksAddon((_e, uri) => void openUrl(uri).catch(() => {})));
@@ -221,6 +244,16 @@ export default function TerminalView({
     // delivered by the parent remounting us with a new key instead
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [termId]);
+
+  // apply font changes in place — remounting would kill the running session
+  useEffect(() => {
+    const term = termRef.current;
+    if (!term) return;
+    term.options.fontFamily = fontFamily || DEFAULT_TERM_FONT;
+    term.options.fontSize = fontSize ?? 13;
+    fitRef.current?.fit();
+    invoke("pty_resize", { termId, rows: term.rows, cols: term.cols }).catch(() => {});
+  }, [fontFamily, fontSize, termId]);
 
   const scroll = (dir: "up" | "down" | "top" | "bottom") => {
     const term = termRef.current;

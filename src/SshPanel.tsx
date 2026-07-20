@@ -21,6 +21,7 @@ export default function SshPanel({
   saved,
   lang,
   fontSize,
+  fontFamily,
   onConfigChange,
   onSaveConnection,
   onDeleteConnection,
@@ -31,6 +32,8 @@ export default function SshPanel({
   saved: SshConfig[];
   lang: Lang;
   fontSize?: number;
+  /** monospace stack for the ssh terminal */
+  fontFamily?: string;
   onConfigChange: (c: SshConfig) => void;
   onSaveConnection: (c: SshConfig) => void;
   onDeleteConnection: (c: SshConfig) => void;
@@ -206,6 +209,7 @@ export default function SshPanel({
         cwd=""
         ssh={config}
         fontSize={fontSize}
+        fontFamily={fontFamily}
         flush
         onExit={() => setExited(true)}
       />

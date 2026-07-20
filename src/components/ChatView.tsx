@@ -19,6 +19,7 @@ export default function ChatView({
   tab,
   lang,
   fontSize,
+  termFont,
   input,
   imgPreview,
   busy,
@@ -35,6 +36,8 @@ export default function ChatView({
   tab: Tab;
   lang: Lang;
   fontSize: number;
+  /** monospace stack for the split terminal */
+  termFont?: string;
   input: string;
   imgPreview: string | null;
   busy: boolean;
@@ -166,7 +169,12 @@ export default function ChatView({
 
         {tab.split && (
           <div className="split-term">
-            <TerminalView termId={`${tab.id}:split`} cwd={tab.cwd} fontSize={fontSize} />
+            <TerminalView
+              termId={`${tab.id}:split`}
+              cwd={tab.cwd}
+              fontSize={fontSize}
+              fontFamily={termFont}
+            />
           </div>
         )}
       </div>
