@@ -266,6 +266,16 @@ export default function TerminalView({
   // dir="auto" — the same mechanism that already works in the chat tab.
   const [readable, setReadable] = useState(false);
   const [lines, setLines] = useState<string[]>([]);
+  // readable-view font size, persisted and shared across all terminals
+  const [readableSize, setReadableSize] = useState<number>(
+    () => Number(localStorage.getItem("readableFont")) || 17
+  );
+  const bumpSize = (delta: number) =>
+    setReadableSize((s) => {
+      const next = Math.min(30, Math.max(11, s + delta));
+      localStorage.setItem("readableFont", String(next));
+      return next;
+    });
 
   useEffect(() => {
     if (!readable) return;
@@ -323,9 +333,18 @@ export default function TerminalView({
         <div className="term-readable" onDoubleClick={() => setReadable(false)}>
           <div className="term-readable-bar">
             <span>📖 {readableLabels?.open}</span>
-            <button onClick={() => setReadable(false)}>✕ {readableLabels?.back}</button>
+            <span className="term-readable-size">
+              <button title="A-" onClick={() => bumpSize(-1)}>
+                A−
+              </button>
+              <span>{readableSize}</span>
+              <button title="A+" onClick={() => bumpSize(1)}>
+                A+
+              </button>
+              <button onClick={() => setReadable(false)}>✕ {readableLabels?.back}</button>
+            </span>
           </div>
-          <div className="term-readable-body">
+          <div className="term-readable-body" style={{ ["--readable-font" as string]: `${readableSize}px` }}>
             {lines.length === 0 && <div className="term-readable-empty">{readableLabels?.empty}</div>}
             {lines.map((l, i) => (
               // dir="auto" per line: the browser runs the full Unicode BiDi

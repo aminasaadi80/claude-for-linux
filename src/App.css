@@ -736,13 +736,26 @@ body,
   overflow: auto;
   padding: 10px 14px;
 }
+.term-readable-body {
+  /* readable-view font size, live-adjustable with the +/- buttons */
+  --readable-font: 17px;
+}
 .term-readable-line {
   font-family: "Vazir Code Hack", "Vazirmatn", ui-monospace, monospace;
-  font-size: 13px;
-  line-height: 1.9;
+  font-size: var(--readable-font);
+  line-height: 1.95;
   white-space: pre-wrap;
   word-break: break-word;
   color: var(--text);
+}
+.term-readable-size {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.term-readable-size button {
+  width: 26px;
+  padding: 4px 0;
 }
 .term-readable-empty {
   color: var(--muted);
