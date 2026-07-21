@@ -343,17 +343,18 @@ export default function TerminalView({
       {readable && (
         <div className="term-readable" onDoubleClick={() => onToggleReadable?.()}>
           <div className="term-readable-bar">
-            <span>📖 {readableLabels?.open}</span>
             <span className="term-readable-size">
-              <button title="A-" onClick={() => bumpSize(-1)}>
+              <button title="A−" onClick={() => bumpSize(-1)}>
                 A−
               </button>
-              <span>{readableSize}</span>
+              <span className="term-readable-num">{readableSize}</span>
               <button title="A+" onClick={() => bumpSize(1)}>
                 A+
               </button>
-              <button onClick={() => onToggleReadable?.()}>✕ {readableLabels?.back}</button>
             </span>
+            <button className="term-readable-close" onClick={() => onToggleReadable?.()}>
+              ✕ {readableLabels?.back}
+            </button>
           </div>
           <div
             className="term-readable-body"
