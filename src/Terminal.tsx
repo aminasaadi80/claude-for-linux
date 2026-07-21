@@ -56,6 +56,8 @@ export default function TerminalView({
   claudeSession,
   fontFamily,
   readableLabels,
+  readableOpen,
+  onToggleReadable,
 }: {
   termId: string;
   cwd: string;
@@ -74,6 +76,10 @@ export default function TerminalView({
   fontFamily?: string;
   /** labels for the readable-view control (from the caller's i18n table) */
   readableLabels?: { open: string; back: string; empty: string };
+  /** whether the readable (RTL) overlay is open — controlled by the parent so
+   *  the toggle button can live in the tab's top bar */
+  readableOpen?: boolean;
+  onToggleReadable?: () => void;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
   // the live xterm instance, so the scroll buttons can drive it (claude enables
@@ -264,8 +270,9 @@ export default function TerminalView({
   // would then re-reorder), we lift the terminal's plain text out of xterm's
   // buffer and let the browser apply the real Unicode BiDi algorithm to it via
   // dir="auto" — the same mechanism that already works in the chat tab.
-  const [readable, setReadable] = useState(false);
+  const readable = !!readableOpen;
   const [lines, setLines] = useState<string[]>([]);
+  const readableBodyRef = useRef<HTMLDivElement>(null);
   // readable-view font size, persisted and shared across all terminals
   const [readableSize, setReadableSize] = useState<number>(
     () => Number(localStorage.getItem("readableFont")) || 17
@@ -297,6 +304,17 @@ export default function TerminalView({
   }, [readable]);
 
   const scroll = (dir: "up" | "down" | "top" | "bottom") => {
+    // when the readable view is open, scroll it (a normal div); otherwise scroll
+    // the terminal's own scrollback (which only exists in flat-text mode — a
+    // full-screen TUI keeps no history to scroll, same as vim)
+    if (readable) {
+      const el = readableBodyRef.current;
+      if (!el) return;
+      if (dir === "top") el.scrollTo({ top: 0 });
+      else if (dir === "bottom") el.scrollTo({ top: el.scrollHeight });
+      else el.scrollBy({ top: (dir === "up" ? -0.9 : 0.9) * el.clientHeight });
+      return;
+    }
     const term = termRef.current;
     if (!term) return;
     if (dir === "top") term.scrollToTop();
@@ -320,17 +338,10 @@ export default function TerminalView({
         <button title="Scroll to bottom" onClick={() => scroll("bottom")}>
           ⤓
         </button>
-        <button
-          className={readable ? "on" : ""}
-          title={readable ? readableLabels?.back : readableLabels?.open}
-          onClick={() => setReadable((v) => !v)}
-        >
-          {readable ? "⌨" : "📖"}
-        </button>
       </div>
 
       {readable && (
-        <div className="term-readable" onDoubleClick={() => setReadable(false)}>
+        <div className="term-readable" onDoubleClick={() => onToggleReadable?.()}>
           <div className="term-readable-bar">
             <span>📖 {readableLabels?.open}</span>
             <span className="term-readable-size">
@@ -341,10 +352,14 @@ export default function TerminalView({
               <button title="A+" onClick={() => bumpSize(1)}>
                 A+
               </button>
-              <button onClick={() => setReadable(false)}>✕ {readableLabels?.back}</button>
+              <button onClick={() => onToggleReadable?.()}>✕ {readableLabels?.back}</button>
             </span>
           </div>
-          <div className="term-readable-body" style={{ ["--readable-font" as string]: `${readableSize}px` }}>
+          <div
+            className="term-readable-body"
+            ref={readableBodyRef}
+            style={{ ["--readable-font" as string]: `${readableSize}px` }}
+          >
             {lines.length === 0 && <div className="term-readable-empty">{readableLabels?.empty}</div>}
             {lines.map((l, i) => (
               // dir="auto" per line: the browser runs the full Unicode BiDi

@@ -159,6 +159,15 @@ function App() {
   // run claude in screen-reader mode: flat line output, no drawn boxes, no
   // alternate screen — which also restores real scrollback
   const [termFlat, setTermFlat] = useState<boolean>(() => localStorage.getItem("termFlat") === "1");
+  // which terminal tabs currently show the readable (RTL) overlay
+  const [readableTabs, setReadableTabs] = useState<Set<string>>(new Set());
+  const toggleReadable = (id: string) =>
+    setReadableTabs((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   const [showSettings, setShowSettings] = useState(false);
   // saved SFTP/FTP connections (persisted locally; may include passwords)
@@ -849,6 +858,13 @@ function App() {
                 >
                   {tb.skipPermissions ? "✅" : "☑"} {t.autoYes}
                 </button>
+                <button
+                  className={`browse-btn ${readableTabs.has(tb.id) ? "on" : ""}`}
+                  title={readableTabs.has(tb.id) ? t.readableBack : t.readable}
+                  onClick={() => toggleReadable(tb.id)}
+                >
+                  {readableTabs.has(tb.id) ? "⌨" : "📖"} {t.readable}
+                </button>
               </CwdBar>
               <TerminalView
                 key={`${tb.cwd}|${tb.skipPermissions ? "y" : "n"}|${termEnglish ? "en" : "any"}|${termFlat ? "flat" : "tui"}`}
@@ -858,6 +874,8 @@ function App() {
                 fontSize={fontSize}
                 fontFamily={termFont}
                 readableLabels={{ open: t.readable, back: t.readableBack, empty: t.readableEmpty }}
+                readableOpen={readableTabs.has(tb.id)}
+                onToggleReadable={() => toggleReadable(tb.id)}
                 extraArgs={[
                   ...legacyArgs,
                   ...(tb.skipPermissions ? ["--dangerously-skip-permissions"] : []),
