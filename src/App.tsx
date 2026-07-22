@@ -330,25 +330,50 @@ function App() {
   }, []);
 
   // auto-save (disk → survives app & system restart)
+  const saveSession = useCallback((ts: Tab[], active: string) => {
+    const sanitized = ts.map((tb) => {
+      const { restored: _r, ...rest } = tb;
+      return {
+        ...rest,
+        // connection secrets live in the OS keyring, never in session.json
+        ...(rest.ssh ? { ssh: { ...rest.ssh, password: "" } } : {}),
+        ...(rest.remote ? { remote: { ...rest.remote, password: "", passphrase: "" } } : {}),
+        messages: tb.messages.map((m) => ({ ...m, streaming: false })),
+      };
+    });
+    return invoke("save_session", {
+      data: JSON.stringify({ tabs: sanitized, activeId: active, counter: tabCounter }),
+    }).catch(() => {});
+  }, []);
+
   useEffect(() => {
     if (!loaded.current) return;
     window.clearTimeout(saveTimer.current);
-    saveTimer.current = window.setTimeout(() => {
-      const sanitized = tabs.map((tb) => {
-        const { restored: _r, ...rest } = tb;
-        return {
-          ...rest,
-          // connection secrets live in the OS keyring, never in session.json
-          ...(rest.ssh ? { ssh: { ...rest.ssh, password: "" } } : {}),
-          ...(rest.remote ? { remote: { ...rest.remote, password: "", passphrase: "" } } : {}),
-          messages: tb.messages.map((m) => ({ ...m, streaming: false })),
-        };
+    saveTimer.current = window.setTimeout(() => saveSession(tabs, activeId), 400);
+  }, [tabs, activeId, saveSession]);
+
+  // confirm before quitting — the window's ✕ would otherwise take every running
+  // terminal down on a single misclick, while closing one tab already asks
+  useEffect(() => {
+    const un = getCurrentWindow().onCloseRequested(async (e) => {
+      e.preventDefault(); // hold the window open until the user answers
+      const running = tabsRef.current.filter((tb) => tb.kind === "terminal" || tb.kind === "ssh").length;
+      const s = STR[langRef.current];
+      const ok = await askConfirmRef.current(running > 0 ? s.quitConfirmBusy(running) : s.quitConfirm, {
+        ok: s.quit,
+        cancel: s.cancel,
+        danger: true,
       });
-      invoke("save_session", {
-        data: JSON.stringify({ tabs: sanitized, activeId, counter: tabCounter }),
-      }).catch(() => {});
-    }, 400);
-  }, [tabs, activeId]);
+      if (!ok) return;
+      // flush the debounced session save so nothing is lost on quit
+      window.clearTimeout(saveTimer.current);
+      if (loaded.current) await saveSession(tabsRef.current, activeIdRef.current);
+      await getCurrentWindow().destroy(); // bypasses this handler
+    });
+    return () => {
+      un.then((f) => f());
+    };
+  }, [saveSession]);
 
   // --- streaming helpers ---
   const appendDelta = useCallback((reqId: string, text: string) => {

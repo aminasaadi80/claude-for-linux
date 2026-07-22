@@ -23,6 +23,10 @@ export const APP_STR = {
     tabRemote: (n: number) => `SFTP ${n}`,
     tabSsh: (n: number) => `SSH ${n}`,
     closeConfirm: (title: string) => `Close "${title}"?`,
+    quitConfirm: "Quit Claude for Linux?",
+    quitConfirmBusy: (n: number) =>
+      `Quit Claude for Linux? ${n} terminal${n === 1 ? "" : "s"} still running.`,
+    quit: "Quit",
     autoYes: "Auto-approve",
     autoYesHint:
       "Answer yes to every permission prompt (--dangerously-skip-permissions). Restarts this terminal.",
@@ -98,6 +102,9 @@ export const APP_STR = {
     tabRemote: (n: number) => `SFTP ${n}`,
     tabSsh: (n: number) => `SSH ${n}`,
     closeConfirm: (title: string) => `«${title}» بسته شود؟`,
+    quitConfirm: "از «Claude برای لینوکس» خارج می‌شوی؟",
+    quitConfirmBusy: (n: number) => `از برنامه خارج می‌شوی؟ ${n} ترمینال هنوز در حال اجراست.`,
+    quit: "خروج",
     autoYes: "تأیید خودکار",
     autoYesHint:
       "بله به همه‌ی درخواست‌های اجازه (--dangerously-skip-permissions). ترمینال را ری‌استارت می‌کند.",
