@@ -283,6 +283,16 @@ export default function TerminalView({
       localStorage.setItem("readableFont", String(next));
       return next;
     });
+  // line spacing, stored as a x10 integer so the steps stay exact
+  const [readableLead, setReadableLead] = useState<number>(
+    () => Number(localStorage.getItem("readableLead")) || 16
+  );
+  const bumpLead = (delta: number) =>
+    setReadableLead((s) => {
+      const next = Math.min(30, Math.max(10, s + delta));
+      localStorage.setItem("readableLead", String(next));
+      return next;
+    });
 
   useEffect(() => {
     if (!readable) return;
@@ -296,7 +306,10 @@ export default function TerminalView({
       for (let i = start; i < buf.length; i++) out.push(buf.getLine(i)?.translateToString(true) ?? "");
       // drop the run of empty lines xterm keeps below the cursor
       while (out.length && out[out.length - 1].trim() === "") out.pop();
-      setLines(out);
+      // collapse runs of blank lines to a single separator — otherwise every
+      // blank terminal row becomes a full-height gap
+      const packed = out.filter((l, i) => l.trim() !== "" || (i > 0 && out[i - 1].trim() !== ""));
+      setLines(packed);
     };
     snapshot();
     const id = window.setInterval(snapshot, 600); // follow live output
@@ -352,6 +365,11 @@ export default function TerminalView({
                 A+
               </button>
             </span>
+            <span className="term-readable-size" title="Line spacing">
+              <button onClick={() => bumpLead(-1)}>↕−</button>
+              <span className="term-readable-num">{(readableLead / 10).toFixed(1)}</span>
+              <button onClick={() => bumpLead(1)}>↕+</button>
+            </span>
             <button className="term-readable-close" onClick={() => onToggleReadable?.()}>
               ✕ {readableLabels?.back}
             </button>
@@ -359,16 +377,26 @@ export default function TerminalView({
           <div
             className="term-readable-body"
             ref={readableBodyRef}
-            style={{ ["--readable-font" as string]: `${readableSize}px` }}
+            style={
+              {
+                ["--readable-font" as string]: `${readableSize}px`,
+                ["--readable-lead" as string]: `${readableLead / 10}`,
+              } as React.CSSProperties
+            }
           >
             {lines.length === 0 && <div className="term-readable-empty">{readableLabels?.empty}</div>}
-            {lines.map((l, i) => (
-              // dir="auto" per line: the browser runs the full Unicode BiDi
-              // algorithm, so Persian reads right-to-left and English doesn't
-              <div key={i} className="term-readable-line" dir="auto">
-                {l || " "}
-              </div>
-            ))}
+            {lines.map((l, i) =>
+              l.trim() === "" ? (
+                // a paragraph break, not a full-height line
+                <div key={i} className="term-readable-gap" />
+              ) : (
+                // dir="auto" per line: the browser runs the full Unicode BiDi
+                // algorithm, so Persian reads right-to-left and English doesn't
+                <div key={i} className="term-readable-line" dir="auto">
+                  {l}
+                </div>
+              )
+            )}
           </div>
         </div>
       )}

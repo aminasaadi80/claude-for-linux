@@ -721,13 +721,14 @@ body,
   min-height: 0;
   overflow: auto;
   padding: 10px 14px;
-  /* readable-view font size, live-adjustable with the A-/A+ buttons */
+  /* live-adjustable with the A-/A+ and ↕-/↕+ buttons */
   --readable-font: 17px;
+  --readable-lead: 1.6;
 }
 .term-readable-line {
   font-family: "Vazir Code Hack", "Vazirmatn", ui-monospace, monospace;
   font-size: var(--readable-font);
-  line-height: 1.95;
+  line-height: var(--readable-lead);
   white-space: pre-wrap;
   word-break: break-word;
   color: var(--text);
@@ -780,6 +781,10 @@ body,
 .term-readable-close:hover {
   border-color: var(--accent);
   color: var(--accent);
+}
+/* blank terminal rows become a small paragraph gap, not a full-height line */
+.term-readable-gap {
+  height: calc(var(--readable-font) * 0.45);
 }
 .term-readable-empty {
   color: var(--muted);
