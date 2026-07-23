@@ -173,12 +173,25 @@ body,
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 12px;
+  /* extra bottom room so the horizontal scrollbar sits in its own channel
+     below the tabs instead of overlapping their bottom edge */
+  padding: 6px 12px 13px;
   background: var(--bg);
   border-bottom: 1px solid var(--border);
   overflow-x: auto;
+  overflow-y: hidden;
   /* don't select tab titles while dragging to reorder */
   user-select: none;
+}
+/* a slimmer scrollbar just for the tab strip, tucked into the padding channel */
+.tab-strip::-webkit-scrollbar {
+  height: 7px;
+}
+.tab-strip::-webkit-scrollbar-thumb {
+  background: var(--muted);
+  border-radius: 4px;
+  border: 1px solid transparent;
+  background-clip: padding-box;
 }
 .tab {
   display: flex;
