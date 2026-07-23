@@ -6,10 +6,44 @@ on:
       - "v*"
   workflow_dispatch:
 
+# Three stages so the release reliably auto-publishes: one job creates a draft,
+# the platform matrix uploads its artifacts to that draft, and a final job flips
+# it to published. (tauri-action's own releaseDraft:false is unreliable when two
+# matrix jobs race on the same tag — the release would stay a draft.)
 jobs:
-  build:
+  create-release:
+    runs-on: ubuntu-24.04
     permissions:
-      contents: write # required for tauri-action to create the release
+      contents: write
+    outputs:
+      release_id: ${{ steps.create-release.outputs.result }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create the draft release
+        id: create-release
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const tag = context.ref.replace('refs/tags/', '');
+            const { data } = await github.rest.repos.createRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag_name: tag,
+              name: `Claude for Linux ${tag}`,
+              body:
+                'Native Claude Code desktop app. Download the `.deb`/`.AppImage` ' +
+                '(Linux) or the `.dmg` (macOS) below. The macOS build is unsigned — ' +
+                'on first launch, right-click the app → Open, or run ' +
+                '`xattr -cr "/Applications/Claude for Linux.app"`.',
+              draft: true,
+              prerelease: false,
+            });
+            return data.id;
+
+  build:
+    needs: create-release
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
@@ -45,13 +79,28 @@ jobs:
       - name: Install npm dependencies
         run: npm install
 
-      - name: Build and release
+      - name: Build and upload to the release
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: "Claude for Linux ${{ github.ref_name }}"
-          releaseBody: "Native Claude Code desktop app. Download the `.deb`/`.AppImage` (Linux) or the `.dmg` (macOS) below. The macOS build is unsigned — on first launch, right-click the app → Open, or run `xattr -cr \"/Applications/Claude for Linux.app\"`."
-          releaseDraft: false
+          releaseId: ${{ needs.create-release.outputs.release_id }}
           args: ${{ matrix.args }}
+
+  publish-release:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    needs: [create-release, build]
+    steps:
+      - name: Publish the release
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.repos.updateRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              release_id: ${{ needs.create-release.outputs.release_id }},
+              draft: false,
+              prerelease: false,
+            });
