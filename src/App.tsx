@@ -352,6 +352,27 @@ function App() {
     saveTimer.current = window.setTimeout(() => saveSession(tabs, activeId), 400);
   }, [tabs, activeId, saveSession]);
 
+  // Also write immediately whenever the window is hidden or backgrounded, not
+  // just on the 400ms debounce — so a crash, logout or `pkill` can't roll the
+  // layout (and thus which claude session each tab resumes) back to an older
+  // snapshot. The debounced save alone loses the last change on a hard close.
+  useEffect(() => {
+    const flush = () => {
+      if (!loaded.current) return;
+      window.clearTimeout(saveTimer.current);
+      void saveSession(tabsRef.current, activeIdRef.current);
+    };
+    const onVis = () => {
+      if (document.hidden) flush();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    window.addEventListener("pagehide", flush);
+    return () => {
+      document.removeEventListener("visibilitychange", onVis);
+      window.removeEventListener("pagehide", flush);
+    };
+  }, [saveSession]);
+
   // confirm before quitting — the window's ✕ would otherwise take every running
   // terminal down on a single misclick, while closing one tab already asks
   useEffect(() => {
