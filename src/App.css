@@ -175,7 +175,7 @@ body,
   gap: 6px;
   /* extra bottom room so the horizontal scrollbar sits in its own channel
      below the tabs instead of overlapping their bottom edge */
-  padding: 6px 12px 13px;
+  padding: 6px 12px 18px;
   background: var(--bg);
   border-bottom: 1px solid var(--border);
   overflow-x: auto;
@@ -659,18 +659,30 @@ body,
   background: #1a1714;
   overflow: hidden;
   position: relative; /* anchor the scroll buttons */
+  display: flex;
+  flex-direction: column;
+  /* side + top breathing room lives on the host, NOT on the element FitAddon
+     measures — webkit2gtk reports a border-box element's height *including*
+     padding, so padding on .xterm-mount made FitAddon overcount rows and the
+     terminal spilled under the status bar */
+  padding: 8px 10px 0;
 }
 .xterm-mount {
-  height: 100%;
-  /* extra bottom gap so Claude's input box / status line isn't clipped */
-  padding: 8px 10px 104px;
+  flex: 1;
+  min-height: 0;
 }
 .xterm-host .xterm {
   height: 100%;
 }
-/* plain shells / ssh don't need the big bottom gap claude's input box needs */
-.xterm-host.flush .xterm-mount {
-  padding-bottom: 12px;
+/* reserved bottom strip (a real flex item, so the row count is honest) that
+   keeps claude's input box / footer clear of the status bar */
+.xterm-host::after {
+  content: "";
+  flex: 0 0 30px;
+}
+/* plain shells / ssh don't need claude's footer gap */
+.xterm-host.flush::after {
+  flex-basis: 8px;
 }
 /* explicit scroll controls — reliable even when the running program (claude)
    captures the mouse wheel; shown on hover, top-right of the terminal */
